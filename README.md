@@ -16,3 +16,24 @@ on emc2p and adds its own component definitions and dataflows on top.
 
 - Use `uv` for Python package management.
 - Run tests with `uv run pytest`.
+
+## Headless MCP test sessions (Claude + Copilot)
+
+`emc2p.testing.headless_session.HeadlessSession` now supports provider-based
+headless clients:
+
+- Default behavior is unchanged (`provider="claude"`).
+- Opt in to Copilot with `provider="copilot"`.
+- Pass `provider_options` for provider-specific CLI/flag overrides.
+- Tool isolation is capability-based: providers that support hard tool stripping
+  do so directly; others receive a strict prompt preamble fallback listing the
+  allowed MCP tools.
+
+Migration path for downstream users:
+
+1. Keep current tests unchanged for Claude compatibility.
+2. Add a second test mode with `provider="copilot"` in your harness.
+3. Start with defaults, then add `provider_options` if your Copilot CLI uses
+   different argument names.
+4. Compare behavior in failure handling, usage metrics, and tool-isolation
+   semantics between providers before making Copilot mode required in CI.

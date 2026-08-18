@@ -196,6 +196,8 @@ def test_strict_tool_isolation_prompt_fallback_for_non_strict_provider(tmp_path)
         provider=_EchoProvider(),
         allowed_tools=["mcp__foo__*"],
         strict_tool_isolation=True,
+        turn_timeout=0.2,
+        session_timeout=300,
     )
     with pytest.raises(pytest.fail.Exception) as exc_info:
         session.send_turn("hello")

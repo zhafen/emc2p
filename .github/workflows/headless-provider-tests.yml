@@ -1,0 +1,33 @@
+name: headless-provider-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-and-provider-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [claude, copilot]
+    env:
+      EMC2P_HEADLESS_PROVIDER: ${{ matrix.provider }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + test deps
+        run: pip install -e ".[dev,testing]"
+      - name: Run headless session unit tests
+        run: pytest /home/runner/work/emc2p/emc2p/tests/testing/test_headless_session.py -q
+      - name: Provider smoke test
+        run: |
+          if [ "${{ matrix.provider }}" = "claude" ]; then
+            pytest /home/runner/work/emc2p/emc2p/tests/testing/test_headless_session.py -q -k provider_smoke_claude_cli_gate
+          else
+            # On forked PRs and on runners without credentials/CLI installed,
+            # this test intentionally skips.
+            pytest /home/runner/work/emc2p/emc2p/tests/testing/test_headless_session.py -q -k provider_smoke_copilot_cli_gate
+          fi
