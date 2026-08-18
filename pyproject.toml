@@ -21,6 +21,13 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
 ]
+# emc2p.testing (HeadlessSession, registry_checks) is meant to be used
+# from a downstream project's own test suite, which already depends on
+# pytest one way or another -- this extra just names that dependency
+# explicitly rather than leaving it implicit.
+testing = [
+    "pytest>=7.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
