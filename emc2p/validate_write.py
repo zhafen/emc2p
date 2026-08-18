@@ -2,9 +2,10 @@
 merging it into a registry.
 
 Pure functions over already-parsed YAML plus a registry's own known
-component types -- nothing about them is story-simulator-specific (see
-docs/manifest/history.yaml: validate_write_checks_ported_from_story_simulator
-for where they came from). The third check this module's callers also
+component types -- nothing about them is specific to any one downstream
+project (see docs/manifest/history.yaml:
+project_history.validate_write_checks_generalized for where they came
+from). The third check this module's callers also
 rely on -- `_find_malformed_entities`, the bare-mapping check -- already
 lives natively in `emc2p.dataflows.etl.load_yaml` and runs automatically
 inside `Registrar.update()`'s own ETL, so it isn't duplicated here.

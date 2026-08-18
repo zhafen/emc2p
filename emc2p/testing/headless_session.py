@@ -3,13 +3,13 @@ client -- `HeadlessSession` spawns a provider CLI as a subprocess against a
 caller-supplied `.mcp.json`, exactly the way a client connecting to that
 server would.
 
-Extracted from story-simulator's own test harness: nothing here knows about
-any downstream project's MCP tool names, registry backend, or domain
-scenarios. A caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`,
-and any `extra_env` its own MCP server(s) need (e.g. a database URL derived
-from a save/workdir the caller picked) -- see story-simulator's
-tests/test_human_validated.py for a downstream subclass that fixes these to
-one project's own defaults.
+Nothing here knows about any downstream project's MCP tool names, registry
+backend, or domain scenarios (see docs/manifest/history.yaml:
+project_history.headless_session_generalized for where this started). A
+caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`, and any
+`extra_env` its own MCP server(s) need (e.g. a database URL derived from a
+save/workdir the caller picked) -- a downstream project typically wraps
+this in its own subclass or fixture that fixes these to its own defaults.
 """
 
 from __future__ import annotations
@@ -29,16 +29,14 @@ import pytest
 # --tools "" strips every built-in Claude Code tool (Bash, Read, Write,
 # Edit, Glob, Grep, WebFetch, WebSearch, Task, ...), leaving only the
 # caller's own `allowed_tools` -- not just denied via --disallowedTools,
-# which still leaves every other built-in tool available. Confirmed
-# happening in practice (story-simulator, #-numbered issue in that repo's
-# own history): a weak model, hitting an MCP tool timeout, used Glob+Read
-# to go read the connected project's own source code trying to
-# self-diagnose the failure instead of retrying or reporting it -- burning
-# the rest of the run on unrelated exploration. A model being tested for
-# how it uses one project's MCP tools has no legitimate reason to reach for
-# unrelated built-in tools; removing the option outright is more robust
-# than a denylist of specific tool names, which only covers what's been
-# caught happening so far.
+# which still leaves every other built-in tool available. A model being
+# tested for how it uses one project's MCP tools has no legitimate reason
+# to reach for unrelated built-in tools; removing the option outright is
+# more robust than a denylist of specific tool names, which only covers
+# what's been caught happening so far (confirmed live once -- see
+# docs/manifest/history.yaml: project_history.strict_tool_isolation_incident
+# for the full account of what a weak model did instead when it wasn't
+# stripped).
 _STRIP_BUILTIN_TOOLS_ARGS = ["--tools", ""]
 
 

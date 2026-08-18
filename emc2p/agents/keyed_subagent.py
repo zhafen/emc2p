@@ -1,14 +1,14 @@
 """Generic tool-calling loop for giving an LLM real, in-process access to a
 Registrar -- not just a bare text completion.
 
-Extracted from story-simulator's own "keyed_subagent" event responder
-(a nested specialist call on that project's own API key, no MCP round-trip):
-a caller there needed a judgment prompt answered by a model that could
-actually read/write the registry itself (`view_registry`/`view_entity`/
-`update_registry`/`consolidate_review`), since the prompts it answers
-require persisting a decision, not just narrating it -- confirmed live
-there that a tool-less completion structurally can't do that: 50 calls in
-one run, zero real writes, zero recorded progress.
+A caller needing a judgment prompt answered by a model that can actually
+read/write the registry itself (`view_registry`/`view_entity`/
+`update_registry`/`consolidate_review`), not just narrate a decision for
+something else to apply later, drives that model through this loop
+instead of a single completion -- a tool-less completion structurally
+cannot persist anything on its own (see docs/manifest/history.yaml:
+project_history.keyed_subagent_loop_generalized for the incident that
+surfaced this).
 
 Nothing here knows about any downstream project's registry schema,
 session/save-dir plumbing, or prompt framing -- `REGISTRAR_TOOL_SPECS`
@@ -18,8 +18,7 @@ takes `model` and `dispatch` as plain parameters (matching
 caller-supplies-the-specifics style). A caller wanting `update_registry`
 calls to also do something extra (e.g. re-exporting to a save directory,
 or writing under a specific source key) supplies its own `dispatch`
-wired to its own functions -- see story-simulator's
-`story_simulator.keyed_subagent` for exactly that.
+wired to its own functions instead of using the default wiring.
 
 Requires the `agents` extra (`litellm`), not a core emc2p dependency --
 most emc2p-based projects have no need for this module at all.

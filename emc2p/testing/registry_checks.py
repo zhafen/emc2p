@@ -2,9 +2,8 @@
 emc2p registry -- used alongside `headless_session.HeadlessSession` to turn
 a model's narration into concrete, checkable registry state.
 
-Nothing here knows about any downstream project's own component schema
-(e.g. story-simulator's `location`/`event_state`) -- a caller names the
-component types/fields it cares about itself.
+Nothing here knows about any downstream project's own component schema --
+a caller names the component types/fields it cares about itself.
 """
 
 from __future__ import annotations

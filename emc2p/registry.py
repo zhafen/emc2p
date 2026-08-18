@@ -169,11 +169,10 @@ class Registry:
         via ``other`` (not ``self``) since ``other`` just went through the
         full validate/derive pipeline for this batch and so always has a
         complete, resolved schema for anything it's carrying data for, even
-        for a component type ``self`` has never seen before (see
-        ``story_simulator.spatial.merge_yaml_string``: every update reloads
-        the full manifest directory alongside the incremental data, so
-        ``other`` always includes schema declarations, not just this batch's
-        world-state rows).
+        for a component type ``self`` has never seen before (e.g. a caller
+        that reloads its full manifest directory alongside the incremental
+        data on every update, so ``other`` always includes schema
+        declarations, not just this batch's world-state rows).
 
         Returns ``None`` without consulting ``_time_dimension_field`` if
         ``other`` lacks a ``field`` or ``entity_id`` table -- a minimal,

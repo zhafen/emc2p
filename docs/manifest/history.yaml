@@ -1,0 +1,79 @@
+file_info:
+    - description: >
+          Non-actionable historical context pulled out of code comments and
+          docstrings, kept here instead of scattered across the codebase.
+          In-file documentation should explain what the current code does
+          and why it's shaped that way when that's non-obvious -- not how
+          it got here. When a comment's "why" is really "here's the story
+          of how this came to be" (an incident it was hardened against, a
+          module it was extracted or generalized from, a project it
+          originated in), that narrative belongs here instead, with the
+          code left pointing at the relevant entry below.
+    - file_info
+
+project_history:
+    data:
+        - description: >
+              Non-actionable historical record of how emc2p reached its
+              current shape.
+    keyed_subagent_loop_generalized:
+        - description: >
+              emc2p.agents.keyed_subagent.run_tool_calling_loop started as
+              a downstream project's own "keyed_subagent" event responder:
+              a nested specialist call on that project's own API key, no
+              MCP round-trip, needing a judgment prompt answered by a model
+              that could actually read/write its registry
+              (view_registry/view_entity/update_registry/
+              consolidate_review), not just narrate a decision for
+              something else to apply. Confirmed live there that a
+              tool-less completion structurally can't do that: 50 calls in
+              one run, zero real writes, zero recorded progress -- the
+              text kept describing outcomes that never got persisted, so
+              the same events just kept getting re-asked until the run's
+              own time budget ran out. Generalized into emc2p once it was
+              clear the loop mechanics (model completion, tool dispatch,
+              iteration cap, usage logging) had nothing to do with that
+              project's own registry schema or session plumbing --
+              matching how headless_session_generalized had already moved
+              the same way.
+    headless_session_generalized:
+        - description: >
+              emc2p.testing.headless_session.HeadlessSession started as a
+              downstream project's own test harness for driving a real MCP
+              client against its MCP server. Generalized into emc2p once
+              mcp_config/allowed_tools/cwd/model/extra_env were pulled out
+              as plain parameters instead of being hardcoded to one
+              project's own tool names/registry backend/domain scenarios
+              -- a downstream project now wraps this in its own subclass or
+              fixture instead of it living there directly.
+    headless_session_fail_deadlock_fixed:
+        - description: >
+              Before HeadlessSession moved into emc2p, its _fail() method
+              read the failing subprocess's stderr (which blocks until
+              EOF) before ever killing that process -- a deadlock, since
+              EOF only arrives once the process exits, and nothing killed
+              it until after that read. Confirmed live: every timeout in
+              the harness silently hung instead of firing until this was
+              fixed (close() the process first, then read stderr from the
+              already-terminated handle).
+    strict_tool_isolation_incident:
+        - description: >
+              _STRIP_BUILTIN_TOOLS_ARGS (--tools "" rather than a
+              --disallowedTools denylist) exists because of one confirmed
+              live incident: a weak model, hitting an MCP tool timeout,
+              used the Glob/Read built-in tools to go read the connected
+              project's own source code, trying to self-diagnose the
+              failure instead of retrying or reporting it -- burning the
+              rest of the run on unrelated exploration instead of the MCP
+              tools actually under test. A denylist would only ever cover
+              tool names caught misused so far; stripping every built-in
+              tool outright removes the option entirely.
+    validate_write_checks_generalized:
+        - description: >
+              emc2p.validate_write's mechanical safety checks
+              (find_component_named_as_nested_entity,
+              find_unknown_component_types) were originally written inside
+              a downstream project before being ported here once it became
+              clear they were pure functions over already-parsed YAML plus
+              a registry's own known component types, with nothing in them
+              actually specific to that project's own domain.
