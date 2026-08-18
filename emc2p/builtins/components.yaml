@@ -1,0 +1,322 @@
+file_info:
+    - description: >
+          This file contains the key entities that define and describe how
+          emc2p works.
+    - file_info
+
+component:
+    data:
+        - description: >
+              Fundamental component type used throughout the emc2p system.
+              Children of ((component)) are themselves component definitions.
+    tag:
+        - alias: tag
+        - description: >
+              A tag has no data. It simply indicates that the entity owns a component
+              of a given type.
+    value:
+        - alias: value
+        - description: >
+              A component that is a single value of arbitrary type.
+        - field:
+              value:
+                  description: The value itself.
+    relation:
+        data:
+            - alias: relation
+            - description: >
+                  A component that describes a relation between two entities: the owner
+                  entity and the entity specified by value.
+            - field:
+                  value:
+                      description: The other end of the relation.
+                      type: entity_ref
+        directed_relation:
+            data:
+                - alias: directed_relation
+                - description: >
+                      A relation where direction matters. The owner entity is the source
+                      and the entity specified by value is the target.
+            parent:
+                - description: The target entity is the parent of the source entity.
+                - field:
+                      is_primary:
+                          description: Whether this is the primary parent defining the entity's position in the hierarchy.
+                          type: bool
+                          default: false
+
+base_data_type:
+    data:
+        - description: >
+              A ((data_type)) component is a ((value)) component with additional
+              specifications.
+        - parent: value
+    int:
+        - alias: int
+        - description: Integer data type.
+    float:
+        - alias: float
+        - description: Float data type.
+    str:
+        data:
+            - alias: str
+            - description: String data type.
+        entity_id:
+            data:
+                - alias: entity_id
+                - description: Data type for entity IDs.
+            component_type:
+                - alias: component_type
+                - description: >
+                      The component_type data type means the value must point to
+                      an entity with a [component_definition] component.
+                - component_type:
+                      skip_on_export: true
+                - field:
+                      derived:
+                          description: >
+                              Whether this component type is derived (computed from other
+                              components, not sourced directly from YAML). Derived component
+                              types are excluded from manifest export.
+                          type: bool
+                          default: false
+                      skip_on_export:
+                          description: >
+                              Whether this component type should be excluded from
+                              manifest export. Used for internal registry tables not
+                              sourced directly from YAML.
+                          type: bool
+                          default: false
+                - todo: >
+                      Component definitions inherit the type for the value field from
+                      their parents, but we also allow users to define the type of value
+                      field using a field component. This means there's room for
+                      inconsistency.
+        categorical:
+            - alias: categorical
+            - description: Data type for a limited set of categories.
+        entity_ref:
+            - alias: entity_ref
+            - description: >
+                  A user-provided string that references an entity by providing a
+                  partial or full path. Resolved to an entity_id by substring
+                  matching against the entity's full path.
+    timestamp:
+        - description: Timestamp data type.
+        - field:
+              value:
+                  description: The value of the timestamp as a string, float, or int.
+              timezone:
+                  description: The timezone.
+                  type: str
+                  default: UTC
+              format:
+                  description: How to interpret the value.
+                  type: str
+                  default: str
+                  range: [str, epoch_time]
+    timedelta:
+        - description: >
+              Data type for differences in time. I
+        - field:
+              value:
+                  description: >
+                      The value of the timedelta as a string, float, or int. If a string
+                      such as "2 days" then the timedelta is unresolved, and must be
+                      converted prior to usage in calculations.
+              unit:
+                  description: Unit for the timedelta.
+                  type: str
+    rating:
+        - description: >
+              A qualitative rating whose interpretation depends on the type field.
+              Integers are assumed to be 0_to_10, floats 0_to_1, and strings
+              low_med_high when type is inferred.
+        - field:
+              value:
+                  description: The rating value; an integer, float, or string.
+              type:
+                  description: >
+                      The rating scale. "0_to_10" is an integer 0–10 scale, "0_to_1"
+                      is a float 0–1 scale, "low_med_high" is a categorical scale, and
+                      "inferred" derives the scale from the value's Python type.
+                  type: str
+                  range: [0_to_10, 0_to_1, low_med_high, inferred]
+                  default: inferred
+
+data_structure:
+    data:
+        - parent: value
+    list:
+        - description: List data type.
+    dict:
+        - description: Dictionary data type.
+    field:
+        - description: >
+              A component that specifies the constraints on a data field. Used to define
+              the schema for components.
+        - parent: dict
+        - field:
+              value:
+                  description: The name of the field.
+                  type: str
+              description:
+                  description: A text description of the field.
+                  type: str
+              type:
+                  description: The type of the field.
+                  type: str
+              nullable:
+                  description: Whether or not nulls can exist in the field.
+                  type: bool
+                  default: true
+              unique:
+                  description: Whether or not there should be only unique values.
+                  type: bool
+                  default: false
+              default:
+                  description: The default value for the field.
+              range:
+                  description: >
+                      A data structure specifying the allowed values for the field. If a
+                      list, then the type should be categorical or a child of that type.
+              units:
+                  description: >
+                      Units used for the field, if they exist.
+                  type: str
+              time_dimension:
+                  description: >
+                    Whether or not this field is a time dimension, for use in slowly
+                    changing dimensions.
+                  type: bool
+                  default: false
+                  nullable: false
+        - todo: >
+              We are going to track derived vs source at a schema level, but we can also
+              record this at a field level.
+        - todo: >
+              We should check if we are modifying any columns in-place anywhere, other
+              than filling in null values, and stop that.
+    schema:
+        - description: >
+              A list of ((field)) components that defines the columns in a component
+              table.
+        - parent: list
+        - field:
+              value:
+                  description: A list of ((field)) components.
+                  type: list[field]
+        - todo: >
+              Do we have dueling definitions here? On one hand we have individual field
+              components that are part of the entity. On the other hand schema
+              component holds a list of field components.
+    table:
+        - description: >
+              Tabular data type. From a row-first perspective tables are lists of
+              dictionaries of fields. From a column-first perspective tables are
+              dictionaries of lists of fields.
+        - parent: dict
+        - field:
+              value:
+                  description: The data itself.
+              schema:
+                  description: The ordered fields for the table columns.
+                  type: schema
+
+emc2p_component:
+    data:
+        - description: Additional useful components defined by emc2p.
+        - parent: value
+
+    description:
+        - description: >
+              A human-readable description of what an entity is or does. This is one of
+              the most common components as nearly every entity should have a description.
+              Flagged time_dimension on ``time`` so a later write updates the current
+              description instead of accumulating an ever-growing history of near-duplicate
+              restatements — view_current (and export_manifest, which now defers to it for
+              any time_dimension'd type) returns only the highest-time row per entity.
+              Callers that genuinely want the full history (e.g. an audit trail of how a
+              description changed over time) should use ``view``, not ``view_current``.
+        - parent: str
+        - field:
+              value:
+                  description: The descriptive text.
+                  type: str
+              time:
+                  description: >
+                      Ordering value for which description is current, e.g. a timestamp or
+                      turn counter. Left null if the caller never supplies one — a component
+                      type's time_dimension field is optional to populate, same as any other
+                      nullable field; view_current still resolves a single current row per
+                      entity as long as at most one row per entity has a null value here
+                      (multiple null rows for the same entity are ambiguous — nulls sort last,
+                      so if more than one exists, whichever the backend orders last wins,
+                      which is not necessarily the most recently written one).
+                  type: int
+                  nullable: true
+                  time_dimension: true
+    entity_id:
+        - description: >
+              The ((entity_id)) component contains identity information about a given
+              entity.
+        - parent: value
+        - component_type:
+              skip_on_export: true
+        - field:
+              value:
+                  description: >
+                      The entity_id.
+                  type: str
+              path:
+                  description: >
+                      The full path to the entity, in the format {filepath}:{yaml_path}.
+                  type: str
+              hash:
+                  description: >
+                      Hash of the path, used for ID when brief.
+                      TODO: Do we actually need this? It was supposed to be a readable
+                      version of the path, but it's far from readable.
+                  type: str
+              alias:
+                  description: >
+                      A readable version of the entity_id.
+                  type: str
+    same_as:
+        - description: >
+              Declares that the owner entity is the same underlying entity as
+              the one referenced by ((same_as)).value (or, exactly, by
+              ((same_as)).target_entity_id) — an entity already present in the
+              registry being updated into. All of the owner's other component
+              data is rebased onto that entity's identity instead of minting a
+              new, disconnected one. This is the standard way to target an
+              existing entity when updating the registry, e.g. an SCD-style
+              position update. Resolved during derive by
+              emc2p.dataflows.derive.resolve_same_as, which runs before all
+              other derive steps.
+        - parent: relation
+        - component_type:
+              skip_on_export: true
+        - field:
+              value:
+                  description: >
+                      Path (or partial path) to the existing entity this one
+                      is the same as, resolved by substring matching like any
+                      entity_ref. Ignored if target_entity_id is given.
+                  type: entity_ref
+              target_entity_id:
+                  description: >
+                      Exact entity_id hash of the existing entity, for when
+                      the path is ambiguous or unknown. Takes precedence over
+                      value when given. Named target_entity_id (not
+                      entity_id) so it doesn't collide with the component
+                      table's own entity_id meta column.
+                  type: entity_id
+                  nullable: true
+
+    derived_field:
+        - description: >
+              Field definitions with parent inheritance resolved. Internal
+              ETL table used for schema validation and entity_ref resolution.
+        - component_type:
+              skip_on_export: true

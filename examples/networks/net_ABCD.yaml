@@ -1,0 +1,245 @@
+meta:
+    - description: |
+        Various ways to describe a network in component form. The network consists of
+        nodes A, B, C, D and links AB (type alpha), AC (type alpha), and AD
+        (type beta, beta value: 1).
+
+numeric_link:
+    - description: Defined for test purposes, has a fourth field that's a numeric value.
+    - component
+    - fields:
+        value: The numeric value.
+        source:
+        target:
+        link_type:
+
+numeric_link_to_link_and_link_value:
+    - entity_transformer:
+        input: numeric_link
+        output: [link, link_value]
+    - mapping:
+        link:
+            source: numeric_link.source
+            target: numeric_link.target
+            link_type: numeric_link.link_type
+        link_value: numeric_link.value
+
+A:
+    - node
+
+B:
+    - node
+
+C:
+    - node
+
+D:
+    - node
+
+AB:
+    - numeric_link:
+        source: A
+        target: B
+        link_type: alpha
+        value: 0
+
+BC:
+    - numeric_link:
+        source: A
+        target: C
+        link_type: alpha
+        value: 0
+
+AD:
+    - link:
+        source: A
+        target: D
+        link_type: beta
+        value: 0
+    - beta: 1
+
+net_ABCD:
+    - includes:
+        - A
+        - B
+        - C
+        - D
+        - AB
+        - BC
+        - AD
+
+net_ABCD_1:
+    - includes:
+        - A: [node]
+        - B: [node]
+        - C: [node]
+        - D: [node]
+        - AB:
+            - link:
+                source: A
+                target: B
+                link_type: alpha
+            - link_value: 0
+        - BC:
+            - link:
+                source: A
+                target: C
+                link_type: alpha
+            - link_value: 0
+        - AD:
+            - minimal_link:
+                source: A
+                target: D
+            - beta: 1
+            - link_value: 0
+    - transform_of: net_ABCD
+
+net_ABCD_normed:
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+            - "C.0"
+            - "D.0"
+        numeric_link:
+            - "AB.0":
+                source: A
+                target: B
+                link_type: alpha
+                link_value: 0
+            - "AC.0":
+                source: A
+                target: C
+                link_type: alpha
+                link_value: 0
+            - "AD.0":
+                source: A
+                target: D
+                link_type: beta
+                link_value: 0
+        beta:
+            - "AD.1"
+        compdef:
+            - beta:
+                fields:
+                    value: The beta value.
+    - transform_of: net_ABCD
+
+net_ABCD_normed_1:
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+            - "C.0"
+            - "D.0"
+        link:
+            - "AB.0":
+                source: A
+                target: B
+                link_type: alpha
+            - "AC.0":
+                source: A
+                target: C
+                link_type: alpha
+            - "AD.0":
+                source: A
+                target: D
+                link_type: beta
+        link_value:
+            - "AB.0":
+                value: 0
+            - "AC.0":
+                value: 0
+            - "AD.0":
+                value: 0
+        beta:
+            - "AD.1"
+        compdef:
+            - beta:
+                fields:
+                    value: The beta value.
+    - transform_of: net_ABCD
+
+net_ABCD_normed_2:
+    - description: |
+        Alternate tables with less duplication by making the link value
+        part of the definition of the link table because it's always 0.
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+            - "C.0"
+            - "D.0"
+        links_with_value_0:
+            - "AB.0":
+                source: A
+                target: B
+                link_type: alpha
+            - "AC.0":
+                source: A
+                target: C
+                link_type: alpha
+            - "AD.0":
+                source: A
+                target: D
+                link_type: beta
+        beta:
+            - "AD.1"
+        compdef:
+            - beta:
+                fields:
+                    value: The beta value.
+            - links_with_value_0:
+                fields:
+                    source: ""
+                    target: ""
+                    link_type: ""
+                includes:
+                    - link_value:
+                        value: 0
+    - transform_of: net_ABCD
+
+net_ABCD_normed_3:
+    - description: |
+        Alternate tables with less duplication by making the link value
+        part of the definition of the link table because it's always 0,
+        and further reduction of duplication by specifying that links_with_value_0
+        inherits the fields of links.
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+            - "C.0"
+            - "D.0"
+        links:
+            - "AB.0":
+                source: A
+                target: B
+                link_type: alpha
+            - "AC.0":
+                source: A
+                target: C
+                link_type: alpha
+            - "AD.0":
+                source: A
+                target: D
+                link_type: beta
+            - "compdef.links_with_value_0":
+                source: links_with_value_0
+                target: link
+                link_type: parent
+        links_with_value_0:
+            - "AB.1"
+            - "AC.1"
+            - "AD.1"
+        beta:
+            - "AD.1"
+        compdef:
+            beta:
+                fields:
+                    value: The beta value.
+            links_with_value_0:
+                includes:
+                    - link_value:
+                        value: 0
+    - transform_of: net_ABCD

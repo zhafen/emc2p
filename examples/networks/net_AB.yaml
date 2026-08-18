@@ -1,0 +1,118 @@
+meta:
+    - description: |
+        Various ways to describe a network in component form. The network consists of
+        nodes A and B and link AB (type alpha).
+
+link_to_minimal_link:
+    - description: |
+        This is equivalent to doing two relational-algebra projections of link.
+    - entity_transformer:
+        input: link
+        output: [minimal_link, link_type]
+    - mapping:
+        minimal_link:
+            source: link.A
+            target: link.B
+        link_type: link.link_type
+
+link_type_to_link_type_flag:
+    - description: |
+        This is equivalent to doing a selection on link_type and recording that the
+        operation happened.
+    - entity_transformer:
+        input: link_type
+        output: link_type.value
+    - mapping:
+        link_type.value:
+            - component
+            - link_type_flag
+
+A:
+    - node
+
+B:
+    - node
+
+AB:
+    - link:
+        source: A
+        target: B
+        link_type: alpha
+
+AB_1:
+    - minimal_link:
+        source: A
+        target: B
+    - link_type: alpha
+    - transform_of: AB
+
+AB_2:
+    - minimal_link:
+        source: A
+        target: B
+    - alpha
+    - transform_of: AB
+
+alpha:
+    - component
+    - link_type_flag
+
+subnet_AB:
+    - description: The subnet as just a list of existing entities.
+    - includes:
+        - A
+        - B
+        - AB
+
+subnet_AB_1:
+    - description: The subnet with entities defined in-line.
+    - includes:
+        - A: [node]
+        - B: [node]
+        - AB:
+            - link:
+                source: A
+                target: B
+                link_type: alpha
+    - transform_of: subnet_AB
+
+subnet_AB_normed:
+    - description: Subnet AB normalized into a nodes table and a link table.
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+        link:
+            - "AB.0":
+                source: A
+                target: B
+                link_type: C
+    - transform_of: subnet_AB
+
+subnet_AB_normed_1:
+    - description: Subnet AB normalized into three tables.
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+        minimal_link:
+            - "AB_1.0"
+        link_type:
+            - "AB_1.1": alpha
+    - transform_of: subnet_AB
+
+subnet_AB_normed_2:
+    - description: Subnet AB with a new table alpha.
+    - normalized_data:
+        node:
+            - "A.0"
+            - "B.0"
+        minimal_link:
+            - "AB_2.0"
+        alpha:
+            - "AB_2.1"
+        component:
+            - "alpha.0"
+        link_type_flag:
+            - "alpha.1"
+    - transform_of: subnet_AB

@@ -1,0 +1,35 @@
+physics_components:
+    position:
+        - description: Component containing the position of an entity.
+        - component_type
+        - field:
+            x:
+                description: X position in meters, relative to the origin. On a standard
+                    map, x would be east (positive) and west (negative).
+                type: float
+                nullable: false
+            y:
+                description: Y position in meters, relative to the origin. On a standard
+                    map, y would be north (positive) and south (negative).
+                type: float
+                nullable: false
+            z:
+                description: Z position in meters, relative to the origin. On a standard map, z would be out of the map/up (positive) and into the map/down (negative).
+                type: float
+                nullable: false
+                default: 0
+            turn:
+                description: The turn counter this position was recorded on.
+                type: int
+                nullable: true
+                time_dimension: true
+    origin:
+        - description: A tag component indicating that the associated entity is at the
+            origin of the coordinate system.
+        - component_type
+
+player:
+    - position:
+        x: 0
+        y: 0
+        turn: 0
