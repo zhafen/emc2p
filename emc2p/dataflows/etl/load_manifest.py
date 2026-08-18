@@ -42,6 +42,14 @@ def register_builtins_dir(path: str | Path, tag: str) -> None:
     _BUILTINS_DIRS.append((tag, Path(path)))
 
 
+def builtins_tags() -> list[str]:
+    """Return every registered builtins tag (``"builtins"`` plus any added
+    via ``register_builtins_dir``), for a caller that needs to recognize
+    builtins-sourced entities by their file identifier prefix (e.g.
+    ``export_manifest``'s exclusion of them from manifest export)."""
+    return [tag for tag, _ in _BUILTINS_DIRS]
+
+
 # ---------------------------------------------------------------------------
 # Source subdags — each produces raw_entity_first_data keyed by file_id
 # ---------------------------------------------------------------------------

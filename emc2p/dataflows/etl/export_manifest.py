@@ -43,6 +43,7 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from ...registry import Registry
+from .load_manifest import builtins_tags
 
 
 INPUT_COMPONENT_TYPES = ["entity_id", "parent"]
@@ -51,13 +52,18 @@ INPUT_COMPONENT_TYPES = ["entity_id", "parent"]
 def _exportable_mask(filepath: pd.Series) -> pd.Series:
     """True for entities that belong in manifest export.
 
-    Excludes builtin entities and any entity sourced from a Python file.
-    Python-derived components — including a docstring's "Components" YAML
-    section (see ``emc2p.dataflows.etl.load_python``) — live in source code,
-    not a standalone YAML file, so they have nowhere to round-trip to and
-    are excluded from export by default.
+    Excludes builtin entities (from emc2p's own builtins directory, and any
+    other registered via ``load_manifest.register_builtins_dir``) and any
+    entity sourced from a Python file. Python-derived components —
+    including a docstring's "Components" YAML section (see
+    ``emc2p.dataflows.etl.load_python``) — live in source code, not a
+    standalone YAML file, so they have nowhere to round-trip to and are
+    excluded from export by default.
     """
-    return ~filepath.str.startswith("builtins") & ~filepath.str.endswith(".py")
+    is_builtin = pd.Series(False, index=filepath.index)
+    for tag in builtins_tags():
+        is_builtin |= filepath.str.startswith(f"{tag}.")
+    return ~is_builtin & ~filepath.str.endswith(".py")
 
 
 @extract_fields({ct: ir.Table for ct in INPUT_COMPONENT_TYPES})
