@@ -146,6 +146,9 @@ async def run_tool_calling_loop(
         message = response.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
         tool_calls = message.tool_calls
+        # Not a `break` -- this `return` ends the whole function right here.
+        # The model asked for nothing further this round, so it's done:
+        # no reason to spend another completion call confirming that.
         if not tool_calls:
             return message.content or ""
         for tool_call in tool_calls:
@@ -158,6 +161,12 @@ async def run_tool_calling_loop(
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
 
+    # Reached only by falling out of the `for` loop above once
+    # `max_iterations` is exhausted -- no `break` involved, just Python's
+    # ordinary "the range ran out" fall-through. Means the model asked for
+    # more tools on every single round and never volunteered to stop; give
+    # up and return whatever text `response`'s last message happens to
+    # carry (its own `tool_calls`, if any, are left undispatched).
     return response.choices[0].message.content or ""
 
 
