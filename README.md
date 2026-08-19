@@ -17,6 +17,17 @@ on emc2p and adds its own component definitions and dataflows on top.
 - Use `uv` for Python package management.
 - Run tests with `uv run pytest`.
 
+### Code style: comments and docstrings
+
+- A docstring (module/class/function) opens with a summary of 2 lines or
+  less, then a blank line, then as much further detail as needed.
+- A comment block sitting as the first statement of a function body
+  becomes a docstring instead, formatted the same way.
+- Any other comment block (a module-level constant, a note mid-function)
+  is capped at a 2-line summary -- no continuation paragraph.
+- Already-compliant comments/docstrings don't need reformatting just to
+  match this convention.
+
 ## Headless MCP test sessions (Claude + Copilot)
 
 `emc2p.testing.headless_session.HeadlessSession` now supports provider-based

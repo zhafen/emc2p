@@ -1,7 +1,8 @@
-"""Tests for emc2p.agents.keyed_subagent's tool-calling loop mechanics --
-no real model calls: litellm.acompletion is monkeypatched with a queue of
-fake responses, since these are mechanical dispatch/iteration checks, not
-a test of any model's actual judgment quality.
+"""Tests for emc2p.agents.keyed_subagent's tool-calling loop mechanics.
+
+No real model calls: litellm.acompletion is monkeypatched with a queue
+of fake responses, since these are mechanical dispatch/iteration checks,
+not a test of any model's actual judgment quality.
 """
 
 import asyncio

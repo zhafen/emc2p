@@ -1,6 +1,5 @@
-"""Generic helpers for checking what a live MCP client actually wrote to an
-emc2p registry -- used alongside `headless_session.HeadlessSession` to turn
-a model's narration into concrete, checkable registry state.
+"""Generic helpers for checking what a live MCP client actually wrote to
+an emc2p registry, alongside `headless_session.HeadlessSession`.
 
 Nothing here knows about any downstream project's own component schema --
 a caller names the component types/fields it cares about itself.
@@ -15,12 +14,8 @@ import ibis
 if TYPE_CHECKING:
     from emc2p.registrar import Registrar
 
-# Intrinsic emc2p bookkeeping component types every entity has a row in
-# regardless of what anyone wrote -- entity_id (alias/filepath/hash) and
-# component_type (which types this entity declares/uses). Not something a
-# model ever chooses to write, so always excluded from
-# `unexpected_components`'s result rather than making every caller repeat
-# this same exclusion in its own `expected` set.
+# Intrinsic emc2p bookkeeping component types every entity has, not
+# something a model ever chooses to write -- always excluded below.
 _ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type"}
 
 
@@ -43,8 +38,7 @@ def schema_exists(dsn: str, schema: str) -> bool:
 
 def unexpected_components(registrar: "Registrar", alias: str, expected: set[str]) -> set[str]:
     """Component types currently recorded on `alias` beyond `expected`
-    (plus the always-present meta types, see
-    `_ALWAYS_PRESENT_META_COMPONENTS`).
+    (plus the always-present meta types, `_ALWAYS_PRESENT_META_COMPONENTS`).
 
     Names *what* got written instead of the intended field when a
     targeted check on one field fails, rather than just noting that the
@@ -61,8 +55,7 @@ def unexpected_components(registrar: "Registrar", alias: str, expected: set[str]
 
 def write_time(registrar: "Registrar", component_type: str, alias: str) -> float | None:
     """The `time` value `component_type` was last written for `alias`
-    under its own `time_dimension`-flagged field, or None if nothing's
-    been recorded yet.
+    under its own time_dimension field, or None if nothing's recorded yet.
 
     Useful as order evidence in a live test that doesn't pace itself one
     step at a time: comparing these recorded times across entities/

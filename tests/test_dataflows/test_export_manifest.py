@@ -33,8 +33,10 @@ class TestExportManifestSplitsByFile:
 
 
 class TestPythonSourcedEntitiesExcludedFromExport:
-    """Docstring-derived entities (including "Components" YAML sections) have
-    no standalone YAML file to round-trip into, so they must not appear in
+    """Docstring-derived entities have no standalone YAML file to
+    round-trip into.
+
+    Including "Components" YAML sections -- they must not appear in
     exported manifest output.
     """
 
@@ -69,8 +71,9 @@ class TestPythonSourcedEntitiesExcludedFromExport:
 
 class TestExportManifestCollapsesTimeDimensionedComponents:
     """A component type flagged time_dimension should export only its
-    current row per entity, not its full accumulated history -- a manifest
-    export is a snapshot of current state, not a change log.
+    current row per entity, not its full accumulated history.
+
+    A manifest export is a snapshot of current state, not a change log.
     """
 
     def test_repeated_description_writes_export_only_the_latest(self, tmp_path):
@@ -110,9 +113,11 @@ class TestExportManifestCollapsesTimeDimensionedComponents:
         assert "second todo" in text
 
     def test_collapse_time_dimension_false_exports_full_history(self, tmp_path):
-        """Passing collapse_time_dimension=False opts out of collapsing entirely,
-        even for a time_dimension'd component type -- e.g. for a full-history
-        export kept alongside a collapsed current-state one.
+        """Passing collapse_time_dimension=False opts out of collapsing
+        entirely, even for a time_dimension'd component type.
+
+        E.g. for a full-history export kept alongside a collapsed
+        current-state one.
         """
         input_dir = tmp_path / "input"
         input_dir.mkdir()

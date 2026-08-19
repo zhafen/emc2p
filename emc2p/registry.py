@@ -14,9 +14,12 @@ _TABLE_META_COLS = {"entity_id", "component_index", "modifier"}
 
 def _format_field_value(value) -> str:
     """Render a field value the way a caller reading this as plain text
-    expects -- YAML/JSON-style true/false/null rather than Python's
-    True/False/None or pandas's float NaN for a missing value, none of
-    which mean anything outside their own library's repr."""
+    expects.
+
+    YAML/JSON-style true/false/null rather than Python's True/False/None
+    or pandas's float NaN for a missing value, none of which mean anything
+    outside their own library's repr.
+    """
     if value is True:
         return "true"
     if value is False:
@@ -294,14 +297,14 @@ class Registry:
     @property
     def known_component_types(self) -> list[str]:
         """Every component type this registry knows about, whether any
-        entity has written data to it yet or not -- a superset of
-        `component_types` (data-bearing only). Includes types declared via
-        `declare_schema` (e.g. carried forward on merge from a loaded
-        manifest, see `merge`'s own docstring) that nothing has recorded
-        data for yet -- `component_types` alone can't distinguish "this
-        type doesn't exist" from "this type exists but nobody's used it
-        yet", which is exactly the gap that let a type like `location` go
-        unnoticed until something actually wrote to it.
+        entity has written data to it yet or not -- a superset of `component_types`.
+
+        Includes types declared via `declare_schema` (e.g. carried forward
+        on merge from a loaded manifest, see `merge`'s own docstring) that
+        nothing has recorded data for yet -- `component_types` alone can't
+        distinguish "this type doesn't exist" from "this type exists but
+        nobody's used it yet", which is exactly the gap that let a type
+        like `location` go unnoticed until something actually wrote to it.
         """
         return list(self._schemas)
 
@@ -452,11 +455,7 @@ class Registry:
                 pairs.append((table_name, field))
 
         # Group fields by table so that multiple fields from the same table
-        # are selected together in a single pass. Joining separately-selected
-        # single-field sub-tables back together on entity_id alone would
-        # cross-join any table with more than one row per entity_id (e.g. a
-        # component with several instances, or SCD history), decorrelating
-        # fields that belong to the same row.
+        # are selected together in a single pass.
         fields_by_table: dict[str, list[str]] = {}
         for table_name, field in pairs:
             fields = fields_by_table.setdefault(table_name, [])
@@ -565,16 +564,15 @@ class Registry:
         return df
 
     def summarize_components(self, limit: int = 20) -> str:
-        """Markdown report of every component type currently holding data
-        (`component_types`, not the larger `known_component_types` --
-        nothing to report on a type nobody's written to yet), one
-        section per type with its row count and up to `limit` sample
-        rows.
+        """Markdown report of every component type currently holding data, one
+        section per type with its row count and up to `limit` sample rows.
 
-        Unlike `view_df` (one type at a time), this covers everything in
-        one call. Purely a data report -- no judgment or instructions
-        attached to it; a caller wanting to prompt a reader toward
-        consolidating duplicate/misplaced data on top of this (e.g.
+        Only `component_types` (data-bearing), not the larger
+        `known_component_types` -- nothing to report on a type nobody's
+        written to yet. Unlike `view_df` (one type at a time), this covers
+        everything in one call. Purely a data report -- no judgment or
+        instructions attached to it; a caller wanting to prompt a reader
+        toward consolidating duplicate/misplaced data on top of this (e.g.
         `validate_write`'s consolidation guidance, composed in by
         `commands.cmd_review_components`) is free to add its own.
         """

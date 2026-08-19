@@ -235,9 +235,11 @@ class TestValidationResults:
         assert invalid.execute().empty
 
     def test_formerly_infra_type_is_validated(self):
-        """Component types that used to be excluded as "infrastructure" (e.g. "parent")
-        are now validated like any other component, since users can add invalid
-        records to them too."""
+        """Component types that used to be excluded as "infrastructure"
+        (e.g. "parent") are now validated like any other component.
+
+        Since users can add invalid records to them too.
+        """
         components = {"parent": _make_component_table([
             {"entity_id": "e1", "component_index": 0, "parent_eid": None},
         ])}
@@ -289,9 +291,11 @@ class TestValidationResultsDeclaredSchemas:
         return validate_components.validation_results(components, validated_field, entity_id)
 
     def test_dataless_typed_component_gets_its_own_field_schema(self):
-        """A component_type-tagged type with declared fields but no rows this
-        batch gets a schema with its real, typed field columns -- not the
-        generic fallback a fieldless tag type gets."""
+        """A component_type-tagged type with declared fields but no rows
+        this batch gets a schema with its real, typed field columns.
+
+        Not the generic fallback a fieldless tag type gets.
+        """
         components = {
             "component_type": _make_component_table([self._component_type_row("eid_widget")]),
         }
@@ -308,9 +312,11 @@ class TestValidationResultsDeclaredSchemas:
         assert "value" not in schema
 
     def test_dataless_fieldless_component_gets_generic_value_column(self):
-        """A component_type-tagged type with no field definitions at all (a
-        bare tag) falls back to a generic `value` column, matching what the
-        loader gives such a type when it does have rows."""
+        """A component_type-tagged type with no field definitions at all
+        (a bare tag) falls back to a generic `value` column.
+
+        Matching what the loader gives such a type when it does have rows.
+        """
         components = {
             "component_type": _make_component_table([self._component_type_row("eid_marker")]),
         }
@@ -339,9 +345,11 @@ class TestValidationResultsDeclaredSchemas:
 
 
 class TestFieldValidationResults:
-    """Tests for field_validation_results, which validates ((field)) against
-    its own self-referential schema, prior to field being used to validate
-    every other component."""
+    """Tests for field_validation_results, which validates ((field))
+    against its own self-referential schema.
+
+    Prior to field being used to validate every other component.
+    """
 
     def _entity_id_row(self, entity_id, entity_key):
         return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}

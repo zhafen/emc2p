@@ -113,12 +113,13 @@ class Registrar:
 
     def validate_write(self, yaml_string: str) -> set[str]:
         """Mechanical safety checks (see `emc2p.validate_write`) for
-        `yaml_string` against this registry's own `known_component_types`
-        -- run this before `update()`'ing it in, to raise on a
+        `yaml_string` against this registry's own known component types.
+
+        Run this before `update()`'ing it in, to raise on a
         component-named-as-nested-entity mistake or an unknown component
         type with a clearer, more targeted message than `update()`'s own
-        ETL failure would give. (The bare-mapping check runs
-        automatically inside `update()` itself, via `load_yaml`'s own
+        ETL failure would give. (The bare-mapping check runs automatically
+        inside `update()` itself, via `load_yaml`'s own
         `raw_entity_first_data` -- not duplicated here.)
 
         Returns the set of component types this write references, for a

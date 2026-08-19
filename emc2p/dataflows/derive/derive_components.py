@@ -43,12 +43,8 @@ def stripped_registry(resolved_registry: Registry) -> Registry:
         df = original.to_pandas().copy()
         if "value" in df.columns:
             df["value"] = df["value"].apply(lambda v: v.strip() if isinstance(v, str) else v)
-            # Schema passed explicitly, not inferred: a column that's entirely
-            # NULL in this batch (e.g. a nullable time_dimension field not yet
-            # backfilled by time_filled_registry, which runs after this step)
-            # has no non-null values for pandas/ibis to infer a dtype from, and
-            # DuckDB rejects creating a table with an untyped NULL column (see
-            # resolve_same_as.same_as_resolved_registry for the same fix).
+            # Schema passed explicitly, not inferred: an all-NULL column here
+            # has no dtype for pandas/ibis to infer, which DuckDB rejects.
             updated["description"] = ibis.memtable(df, schema=original.schema())
 
     for comp_type, field_names in fields_by_comp.items():

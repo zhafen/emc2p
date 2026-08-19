@@ -1,7 +1,9 @@
 """Unit tests for HeadlessSession's timeout/kill mechanics -- turn_timeout,
-session_timeout, and _fail's process-termination path. No real `claude`
-CLI or Anthropic API calls: a plain `cat` subprocess stands in for the
-real one, so these run fast and free as part of the normal test suite.
+session_timeout, and _fail's process-termination path.
+
+No real `claude` CLI or Anthropic API calls: a plain `cat` subprocess
+stands in for the real one, so these run fast and free as part of the
+normal test suite.
 
 mcp_config/allowed_tools/cwd/model are all irrelevant to what's under test
 here (only __enter__ uses them, and __enter__ is bypassed entirely by
@@ -69,12 +71,13 @@ def _stub_session(
     **kwargs,
 ) -> HeadlessSession:
     """A HeadlessSession with `cat` standing in for the real `claude -p`
-    subprocess: reads stdin until EOF then exits promptly, unlike a bare
-    `sleep`, which would ignore stdin closing and force close()'s full
-    30s wait/kill fallback on every test here. Bypasses __enter__
-    entirely (no shutil.which("claude") check, no real MCP config) since
-    only the timeout/kill mechanics are under test, not an actual
-    conversation.
+    subprocess.
+
+    Reads stdin until EOF then exits promptly, unlike a bare `sleep`,
+    which would ignore stdin closing and force close()'s full 30s
+    wait/kill fallback on every test here. Bypasses __enter__ entirely
+    (no shutil.which("claude") check, no real MCP config) since only the
+    timeout/kill mechanics are under test, not an actual conversation.
     """
     session = HeadlessSession(
         mcp_config=tmp_path / ".mcp.json",
@@ -100,12 +103,13 @@ def _stub_session(
 
 def test_fail_terminates_a_still_running_process_without_hanging(tmp_path):
     """The bug this guards against: _fail() used to read the process's
-    stderr (blocking until EOF) before ever killing it -- a deadlock,
-    since EOF only arrives once the process exits, and nothing killed it
-    until after that read. Confirmed live once (see docs/manifest/
-    history.yaml: project_history.headless_session_fail_deadlock_fixed):
-    every timeout in this harness silently hung instead of firing until
-    this was fixed."""
+    stderr (blocking until EOF) before ever killing it -- a deadlock.
+
+    EOF only arrives once the process exits, and nothing killed it until
+    after that read. Confirmed live once (see docs/manifest/history.yaml:
+    project_history.headless_session_fail_deadlock_fixed): every timeout
+    in this harness silently hung instead of firing until this was fixed.
+    """
     session = _stub_session(tmp_path)
     proc = session.proc
     assert proc.poll() is None  # still running
@@ -132,10 +136,12 @@ def test_turn_timeout_fires_with_its_own_message(tmp_path):
 
 
 def test_session_timeout_fires_when_it_is_the_sooner_deadline(tmp_path):
-    """send_turn's deadline is min(turn_deadline, session_deadline) -- a
-    session past its own overall budget must fail with the session
+    """send_turn's deadline is min(turn_deadline, session_deadline).
+
+    A session past its own overall budget must fail with the session
     message, not silently wait out the (deliberately generous)
-    turn_timeout instead."""
+    turn_timeout instead.
+    """
     session = _stub_session(tmp_path, turn_timeout=300, session_timeout=300)
     session._session_deadline = time.monotonic() - 1  # already past
     start = time.monotonic()

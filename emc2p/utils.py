@@ -2,12 +2,8 @@ import hashlib
 
 import pandas as pd
 
-# format_guide.yaml self-documents the EC format spec (see
-# iacs.commands.build_format_description) using the same component-tagging
-# conventions as real project data (e.g. "requirement"), but it ships
-# alongside a manifest purely for the describe_format tool and isn't
-# project data. Views/dataflows that aggregate project-wide data exclude
-# entities sourced from it.
+# format_guide.yaml self-documents the EC format spec using the same
+# component-tagging conventions as real data, but isn't project data.
 FORMAT_GUIDE_BASENAME = "format_guide.yaml"
 
 

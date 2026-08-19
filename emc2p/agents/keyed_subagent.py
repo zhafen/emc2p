@@ -35,16 +35,11 @@ from typing import Any, Callable
 import litellm
 
 # Independent of any caller's own pacing (e.g. a wall-clock turn budget):
-# a safety net against a tool-call loop that never converges but happens
-# to stay fast per-call, so a caller's own time-based budget wouldn't
-# catch it either.
+# a safety net against a tool-call loop that never converges.
 DEFAULT_MAX_ITERATIONS = 15
 
-# Generic Registrar-shaped tool specs: view a component type, view one
-# entity, merge YAML in, and review everything recorded so far. A caller
-# is free to pass its own `tools`/`dispatch` instead -- these are just the
-# common default, matching `Registrar`'s own `view_df`/`view_entity`/
-# `update`/`summarize_components` surface one-for-one.
+# Generic Registrar-shaped tool specs -- a caller is free to pass its own
+# `tools`/`dispatch` instead; these are just the common default.
 REGISTRAR_TOOL_SPECS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -124,8 +119,7 @@ async def run_tool_calling_loop(
     usage_log_path: Path | None = None,
 ) -> str:
     """Answer `prompt` via `model`, letting it call `tools` (dispatched
-    through `dispatch(name, arguments) -> str`) as many times as it needs
-    before giving a final text answer.
+    through `dispatch`) as many times as needed before a final text answer.
 
     `dispatch` is the only thing here that touches an actual registry --
     this function itself just drives the completion/tool-result exchange.
@@ -146,9 +140,8 @@ async def run_tool_calling_loop(
         message = response.choices[0].message
         messages.append(message.model_dump(exclude_none=True))
         tool_calls = message.tool_calls
-        # Not a `break` -- this `return` ends the whole function right here.
-        # The model asked for nothing further this round, so it's done:
-        # no reason to spend another completion call confirming that.
+        # Not a `break` -- this `return` ends the whole function right
+        # here: the model asked for nothing further, so it's done.
         if not tool_calls:
             return message.content or ""
         for tool_call in tool_calls:
@@ -161,21 +154,18 @@ async def run_tool_calling_loop(
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
 
-    # Reached only by falling out of the `for` loop above once
-    # `max_iterations` is exhausted -- no `break` involved, just Python's
-    # ordinary "the range ran out" fall-through. Means the model asked for
-    # more tools on every single round and never volunteered to stop; give
-    # up and return whatever text `response`'s last message happens to
-    # carry (its own `tool_calls`, if any, are left undispatched).
+    # Reached only by falling out of the `for` loop above (no `break`
+    # anywhere) once `max_iterations` is exhausted without the model stopping.
     return response.choices[0].message.content or ""
 
 
 def _log_usage(response: Any, usage_log_path: Path | None) -> None:
     """Best-effort append of this call's cost/tokens to `usage_log_path`,
-    one JSON line per call. Never lets a logging failure take down the
-    actual judgment call -- this is auxiliary instrumentation, not
-    something a caller's correctness should ever hinge on. A no-op when
-    `usage_log_path` is None.
+    one JSON line per call. A no-op when `usage_log_path` is None.
+
+    Never lets a logging failure take down the actual judgment call --
+    this is auxiliary instrumentation, not something a caller's
+    correctness should ever hinge on.
     """
     if usage_log_path is None:
         return

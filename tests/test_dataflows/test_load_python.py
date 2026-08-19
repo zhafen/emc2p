@@ -10,9 +10,7 @@ import emc2p.dataflows.etl.load_manifest as load_manifest
 import emc2p.dataflows.etl.load_python as load_python
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 def _all_entities(result: dict) -> dict:
     merged = {}
@@ -28,9 +26,7 @@ def _load(python_strings: dict) -> dict:
     return load_python.raw_entity_first_data(asts, names)
 
 
-# ---------------------------------------------------------------------------
 # _find_iacs_meta
-# ---------------------------------------------------------------------------
 
 class TestFindIacsMeta:
 
@@ -62,9 +58,7 @@ class TestFindIacsMeta:
         assert result == {"solution of": "r", "work_state": "done"}
 
 
-# ---------------------------------------------------------------------------
-# parsed_asts / module_names — the DAG nodes preceding raw_entity_first_data
-# ---------------------------------------------------------------------------
+# parsed_asts / module_names -- the DAG nodes preceding raw_entity_first_data
 
 class TestParsedAsts:
 
@@ -104,9 +98,7 @@ class TestModuleNames:
         assert set(names.keys()) == set(asts.keys())
 
 
-# ---------------------------------------------------------------------------
-# raw_entity_first_data — parsing a dict of raw Python source
-# ---------------------------------------------------------------------------
+# raw_entity_first_data -- parsing a dict of raw Python source
 
 class TestRawEntityFirstData:
 
@@ -134,9 +126,7 @@ class TestRawEntityFirstData:
         assert result == {}
 
 
-# ---------------------------------------------------------------------------
 # Entity extraction
-# ---------------------------------------------------------------------------
 
 class TestModuleEntity:
 
@@ -297,9 +287,7 @@ class TestDocstringComponentsSection:
         assert "None." in desc
 
 
-# ---------------------------------------------------------------------------
-# _call_target — resolving a Call node's func to a best-effort dotted name
-# ---------------------------------------------------------------------------
+# _call_target -- resolving a Call node's func to a best-effort dotted name
 
 class TestCallTarget:
 
@@ -337,9 +325,7 @@ class TestCallTarget:
         assert load_python._call_target(self._call_func("foo()()")) is None
 
 
-# ---------------------------------------------------------------------------
-# _collect_body — calls/imports made directly in a body, not nested defs
-# ---------------------------------------------------------------------------
+# _collect_body -- calls/imports made directly in a body, not nested defs
 
 class TestCollectBody:
 
@@ -355,17 +341,13 @@ class TestCollectBody:
 
     def test_collects_multiple_distinct_calls_in_first_occurrence_order_deduped(self):
         # "foo" appears (and repeats) before "bar" in source -- first-
-        # occurrence order, not alphabetical, is what a caller's actual
-        # call sequence needs (see architecture_graph.build_call_reachability's
-        # order_edges), so this deliberately picks names where the two
-        # orderings disagree.
+        # occurrence order, not alphabetical, is what's under test here.
         calls, _ = load_python._collect_body(self._body("foo()\nbar()\nfoo()\n"))
         assert calls == ["foo", "bar"]
 
     def test_does_not_descend_into_nested_function(self):
         # This body itself plays the role of an enclosing function's body --
-        # `def inner` is a nested def within it, mirroring what
-        # `_collect_body(node.body)` actually receives for a real function.
+        # `def inner` is a nested def within it, as `_collect_body` receives.
         calls, _ = load_python._collect_body(self._body(
             """
             def inner():
@@ -419,9 +401,7 @@ class TestCollectBody:
 
     def test_excludes_a_constructor_call(self):
         # Foo() constructs a Foo, it doesn't call behavior named "Foo" --
-        # only callables belong in a call-reachability trace, so a
-        # PEP 8-capitalized call target is treated as a constructor and
-        # left out.
+        # only callables belong in a call-reachability trace.
         calls, _ = load_python._collect_body(self._body("Foo()\n"))
         assert calls == []
 
@@ -434,9 +414,7 @@ class TestCollectBody:
         assert calls == ["bar", "baz"]
 
 
-# ---------------------------------------------------------------------------
 # End-to-end: calls/imports show up as component entries
-# ---------------------------------------------------------------------------
 
 class TestCallsAndImportsAsComponents:
 
@@ -490,10 +468,7 @@ class TestCallsAndImportsAsComponents:
 
     def test_constructor_call_produces_no_calls_component(self):
         # A call-reachability trace is meant to show callables, not types
-        # in use -- Bar() constructs a Bar, so it's excluded the same as
-        # _collect_body excludes it, and never becomes a "calls" edge.
-        # No docstring, matching test_entity_with_only_calls_has_no_description's
-        # pattern: calls alone (here, none survive) don't qualify an entity.
+        # in use -- Bar() constructs a Bar, so it's excluded.
         src = 'def foo():\n    Bar()\n'
         entities = _all_entities(_load({"mod.py": src}))
         assert entities == {}
@@ -517,9 +492,12 @@ class TestCallsAndImportsAsComponents:
         assert entities == {}
 
     def test_undocumented_function_calls_do_not_leak_onto_module_entity(self):
-        """A module-level __iacs__ still creates the module entity (existing
-        behavior), but calls inside an undocumented nested function must not
-        be attributed to it -- _collect_body stops at nested FunctionDef."""
+        """A module-level __iacs__ still creates the module entity
+        (existing behavior).
+
+        But calls inside an undocumented nested function must not be
+        attributed to it -- _collect_body stops at nested FunctionDef.
+        """
         src = '__iacs__ = {"solution of": "req"}\ndef foo():\n    bar()\n'
         entities = _all_entities(_load({"mod.py": src}))
         mod_key = next(k for k in entities if k.endswith("mod"))
@@ -580,9 +558,7 @@ class TestClassEntity:
         assert {"solution of": "req"} in entities[key]
 
 
-# ---------------------------------------------------------------------------
 # Entity ID stability
-# ---------------------------------------------------------------------------
 
 class TestEntityIdStability:
 
@@ -597,9 +573,7 @@ class TestEntityIdStability:
         assert any("pkg.mod" in k for k in entities)
 
 
-# ---------------------------------------------------------------------------
 # Integration with pathvalue_pairs
-# ---------------------------------------------------------------------------
 
 class TestIntegrationWithPipeline:
 
@@ -632,9 +606,7 @@ class TestIntegrationWithPipeline:
         assert (sol_df["value"] == "some_req").any()
 
 
-# ---------------------------------------------------------------------------
 # Integration test: load the real emc2p package
-# ---------------------------------------------------------------------------
 
 class TestLoadEmc2pPackage:
     """Load the emc2p source tree and verify the output is well-formed."""

@@ -22,20 +22,22 @@ CONSOLIDATION_GUIDANCE = (
     "correct one instead. If you find something, write a correction; if "
     "everything looks right, no action needed."
 )
-"""Agent-facing instruction for what to do with a `Registry.summarize_components`
-report -- kept here, not on `summarize_components` itself, so that method
-stays a plain data report and this module stays the one place holding
-guidance on how an agent should act on write-safety/data-quality concerns.
-Composed onto the report by `commands.cmd_review_components`."""
+"""Agent-facing instruction for what to do with a
+`Registry.summarize_components` report.
+
+Kept here, not on `summarize_components` itself, so that method stays a
+plain data report and this module stays the one place holding guidance on
+how an agent should act on write-safety/data-quality concerns. Composed
+onto the report by `commands.cmd_review_components`."""
 
 
 def referenced_component_types(parsed: dict) -> set[str]:
     """Collect every component-type name referenced anywhere in `parsed`
-    (already-`yaml.safe_load`-ed entity-first YAML) -- the component-list
-    keys/bare-string markers at whatever nesting depth they actually
-    appear, not the entity-path segments above them.
+    (already-parsed entity-first YAML), not the entity-path segments above them.
 
-    Recurse through dict-of-dicts-or-lists (entity nesting), and once an
+    The component-list keys/bare-string markers at whatever nesting depth
+    they actually appear. Recurse through dict-of-dicts-or-lists (entity
+    nesting), and once an
     actual list is reached (a component list), that's where real
     component-type names live -- either a bare string marker (e.g.
     `component_type`) or the single key of a one-key dict (e.g.
@@ -67,7 +69,9 @@ def referenced_component_types(parsed: dict) -> set[str]:
 
 def component_types_defined_inline(parsed: dict) -> set[str]:
     """Names of component types being freshly declared in this same YAML
-    batch -- an entity named after the type itself, carrying a bare
+    batch, via a bare `component_type` marker in their own component list.
+
+    An entity named after the type itself, carrying a bare
     `component_type` marker in its own component list, the shape a
     manifest's own builtin component definitions use: `location:\\n    -
     description: ...\\n    - component_type\\n    - field: ...`.
@@ -82,16 +86,16 @@ def component_types_defined_inline(parsed: dict) -> set[str]:
 
 
 def find_component_named_as_nested_entity(yaml_string: str, known: set[str]) -> list[str]:
-    """Scan for an alias whose value is a dict (a legitimate nested-entity
-    shape on its own) where one of that dict's own keys names an
-    already-known, real component type -- e.g. `car_b:\\n    location:\\n
-    - value: x` (missing the leading `- ` that would make `location` a
-    list item, i.e. a component attachment, rather than a dict key, i.e.
-    a nested child entity's own alias). The parser reads this shape as
-    "car_b has a nested child entity named `location`", not "attach a
-    `location` component to car_b" -- structurally identical to a genuine
-    nested entity, so the bare-mapping check can't catch it on shape
-    alone.
+    """Scan for an alias whose value is a dict where one of its own keys
+    names an already-known, real component type, not a component list.
+
+    E.g. `car_b:\\n    location:\\n - value: x` (missing the leading `- `
+    that would make `location` a list item, i.e. a component attachment,
+    rather than a dict key, i.e. a nested child entity's own alias). The
+    parser reads this shape as "car_b has a nested child entity named
+    `location`", not "attach a `location` component to car_b" --
+    structurally identical to a genuine nested entity, so the bare-mapping
+    check can't catch it on shape alone.
 
     Mechanical, not semantic, like `find_unknown_component_types`: a
     nested child entity's alias coinciding with a real component type's
@@ -122,10 +126,12 @@ def find_component_named_as_nested_entity(yaml_string: str, known: set[str]) -> 
 
 def find_unknown_component_types(yaml_string: str, known: set[str]) -> dict[str, list[str]]:
     """Component types this write references that aren't in `known` and
-    aren't being defined inline (see `component_types_defined_inline`) --
-    mapping each unknown name to its closest known matches, if any, so
-    the caller's own error message can suggest a likely-intended real
-    name instead of leaving the caller to guess again.
+    aren't defined inline, mapped to their closest known matches (if any).
+
+    See `component_types_defined_inline` for what "defined inline" means.
+    Mapping each unknown name to its closest known matches lets the
+    caller's own error message suggest a likely-intended real name
+    instead of leaving the caller to guess again.
 
     Best-effort: a parse failure or unexpected top-level shape just finds
     nothing here too, since `Registrar.update()`'s own error handling is

@@ -144,9 +144,11 @@ class TestRegistryViewAliases:
 
     @pytest.fixture
     def sample_registry(self):
-        """Same shape as TestRegistryView's fixture of the same name --
-        duplicated locally since pytest doesn't share method-scoped
-        fixtures across classes."""
+        """Same shape as TestRegistryView's fixture of the same name.
+
+        Duplicated locally since pytest doesn't share method-scoped
+        fixtures across classes.
+        """
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
@@ -172,8 +174,11 @@ class TestRegistryViewAliases:
     @pytest.fixture
     def registry_with_ambiguous_alias(self):
         """Two entities whose paths both contain "shared", but neither is
-        aliased or hashed to exactly "shared" -- resolving "shared" can only
-        succeed via the substring fallback, and matches both."""
+        aliased or hashed to exactly "shared".
+
+        Resolving "shared" can only succeed via the substring fallback,
+        and matches both.
+        """
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
@@ -341,10 +346,7 @@ class TestRegistryViewCurrent:
             "status_reading",
             {"entity_id": ["e1", "e1", "e2"],
              # e1's two rows deliberately differ in component_index: SCD
-             # history commonly comes from separate writes that each compute
-             # their own component_index from scratch (e.g. independent
-             # merges), so it isn't a stable key to group by — only
-             # entity_id is guaranteed unique per point in time.
+             # history commonly comes from separate writes each computing it fresh.
              "component_index": [0, 1, 0],
              "modifier": pd.array([None, None, None], dtype=pd.StringDtype()),
              "as_of": ["2024-01-01", "2024-06-01", "2024-03-01"],
@@ -569,8 +571,7 @@ class TestRegistryDeclareSchema:
 
     def test_known_component_types_includes_declared_but_dataless_type(self, sample_registry):
         """component_types alone can't distinguish "this type doesn't exist"
-        from "this type exists but nobody's used it yet" -- known_component_types
-        can."""
+        from "this type exists but nobody's used it yet" -- known_component_types can."""
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
         sample_registry.declare_schema("position", schema)
         assert "position" not in sample_registry.component_types
@@ -671,10 +672,12 @@ class TestRegistryGetEntityId:
         assert registry.get_entity_id("nonexistent") is None
 
     def test_container_alias_resolves_despite_being_path_prefix_of_children(self, registry):
-        """A container's own alias ("feeding_system") is a substring of its
-        children's paths too ("feeding_system.feed_cats", ...), but the
-        exact-alias match must still resolve it unambiguously rather than
-        reporting it as ambiguous with its own descendants."""
+        """A container's own alias is a substring of its children's paths
+        too ("feeding_system" vs "feeding_system.feed_cats", ...).
+
+        The exact-alias match must still resolve it unambiguously rather
+        than reporting it as ambiguous with its own descendants.
+        """
         assert registry.get_entity_id("feeding_system") == "bbb222bbb222"
 
     def test_returns_none_when_substring_matches_multiple_with_no_exact_alias_hit(self, registry):
@@ -724,7 +727,10 @@ class TestRegistryViewEntityDf:
     def test_resolves_container_alias_despite_being_path_prefix_of_child(self, registry):
         """Regression test: view_entity_df used to match `entity_id.alias`
         by hand, which happened to disambiguate a container from its
-        children too; delegating to get_entity_id must preserve that."""
+        children too.
+
+        Delegating to get_entity_id must preserve that.
+        """
         result = registry.view_entity_df("feeding_system")
         assert result["description"].iloc[0]["description.value"] == "The feeding system."
 
