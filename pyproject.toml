@@ -26,7 +26,7 @@ dev = [
 testing = [
     "pytest>=7.0.0",
 ]
-# emc2p.agents (the keyed_subagent tool-calling loop) is optional: only
+# emc2p.agents (the tool_calling_loop module) is optional: only
 # a project wiring an LLM up to a Registrar as a live agent needs litellm.
 agents = [
     "litellm>=1.97.0",

@@ -186,4 +186,4 @@ def _log_usage(response: Any, usage_log_path: Path | None) -> None:
         with usage_log_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
     except Exception as exc:  # noqa: BLE001 -- deliberately broad, see docstring
-        print(f"[emc2p.agents.keyed_subagent] could not log usage: {exc}", file=sys.stderr)
+        print(f"[emc2p.agents.tool_calling_loop] could not log usage: {exc}", file=sys.stderr)

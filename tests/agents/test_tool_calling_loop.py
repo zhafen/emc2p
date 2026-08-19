@@ -1,4 +1,4 @@
-"""Tests for emc2p.agents.keyed_subagent's tool-calling loop mechanics.
+"""Tests for run_tool_calling_loop's dispatch/iteration mechanics.
 
 No real model calls: litellm.acompletion is monkeypatched with a queue
 of fake responses, since these are mechanical dispatch/iteration checks,
@@ -13,7 +13,7 @@ import pytest
 
 pytest.importorskip("litellm", reason="requires the 'agents' extra")
 
-from emc2p.agents.keyed_subagent import run_tool_calling_loop  # noqa: E402
+from emc2p.agents.tool_calling_loop import run_tool_calling_loop  # noqa: E402
 
 
 class _FakeToolCall:
@@ -46,7 +46,7 @@ def _queue_responses(monkeypatch, responses: list[_FakeResponse]):
         calls.append({"model": model, "messages": messages, "tools": tools})
         return responses[len(calls) - 1]
 
-    monkeypatch.setattr("emc2p.agents.keyed_subagent.litellm.acompletion", fake_acompletion)
+    monkeypatch.setattr("emc2p.agents.tool_calling_loop.litellm.acompletion", fake_acompletion)
     return calls
 
 
@@ -136,7 +136,7 @@ def test_max_iterations_returns_last_content_instead_of_looping_forever(monkeypa
 
 def test_usage_logged_when_path_given(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        "emc2p.agents.keyed_subagent.litellm.completion_cost", lambda **kwargs: 0.0042
+        "emc2p.agents.tool_calling_loop.litellm.completion_cost", lambda **kwargs: 0.0042
     )
     usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
     _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."), usage=usage)])
