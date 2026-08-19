@@ -534,8 +534,7 @@ class TestRegistryDeclareSchema:
             {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"], "entity_key": ["e1"], "filepath": ["test"]},
         )
         # An empty (but correctly-columned) "field" table, so
-        # _time_dimension_field -- which view_current always consults --
-        # finds no time_dimension field rather than a missing "field" key.
+        # _time_dimension_field finds no time_dimension field, not a missing key.
         conn.create_table(
             "field",
             pd.DataFrame(columns=["entity_id", "value", "time_dimension"]).astype(
@@ -726,8 +725,7 @@ class TestRegistryViewEntityDf:
 
     def test_resolves_container_alias_despite_being_path_prefix_of_child(self, registry):
         """Regression test: view_entity_df used to match `entity_id.alias`
-        by hand, which happened to disambiguate a container from its
-        children too.
+        by hand, which happened to disambiguate a container from its children too.
 
         Delegating to get_entity_id must preserve that.
         """

@@ -128,10 +128,10 @@ class ClaudeHeadlessProvider(HeadlessProvider):
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]:
         """Dropping every CLAUDE*/AI_AGENT env var is load-bearing, not
-        cosmetic -- a nested `claude -p` can otherwise inherit and attach
-        to this outer session.
+        cosmetic.
 
-        Confirmed live: run from inside a Claude Code Cloud session, this
+        A nested `claude -p` can otherwise inherit and attach to this
+        outer session. Confirmed live: run from inside a Claude Code Cloud session, this
         process's own environment carries CLAUDE_CODE_SESSION_ID (plus its
         messaging socket/token, oauth fd, container id, ...) for *this*
         session. Passed through via a plain `{**os.environ, ...}`, the

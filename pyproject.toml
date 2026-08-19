@@ -22,15 +22,12 @@ dev = [
     "pytest>=7.0.0",
 ]
 # emc2p.testing (HeadlessSession, registry_checks) is meant to be used
-# from a downstream project's own test suite, which already depends on
-# pytest one way or another -- this extra just names that dependency
-# explicitly rather than leaving it implicit.
+# from a downstream project's own test suite, which already depends on pytest.
 testing = [
     "pytest>=7.0.0",
 ]
-# emc2p.agents (the keyed_subagent tool-calling loop) is optional: only a
-# project actually wiring an LLM up to a Registrar as a live agent needs
-# litellm at all.
+# emc2p.agents (the keyed_subagent tool-calling loop) is optional: only
+# a project wiring an LLM up to a Registrar as a live agent needs litellm.
 agents = [
     "litellm>=1.97.0",
 ]

@@ -191,11 +191,7 @@ class Registry:
                 self.update({comp_type: incoming_table.to_pyarrow()})
 
         # Carry forward any of other's declared-but-dataless schemas (see
-        # declare_schema) too, not just its physical tables, so a component
-        # type declared once (e.g. by a manifest loaded in one update) stays
-        # known on self across every later update that merges this one in —
-        # merge is the only path new schema knowledge has into a Registrar's
-        # long-lived registry.
+        # declare_schema) too, not just its physical tables.
         for comp_type, schema in other._schemas.items():
             if comp_type not in other.component_types:
                 self.declare_schema(comp_type, schema)
