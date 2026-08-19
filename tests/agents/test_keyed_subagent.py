@@ -10,7 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from emc2p.agents.keyed_subagent import run_tool_calling_loop
+pytest.importorskip("litellm", reason="requires the 'agents' extra")
+
+from emc2p.agents.keyed_subagent import run_tool_calling_loop  # noqa: E402
 
 
 class _FakeToolCall:
