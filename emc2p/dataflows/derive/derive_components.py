@@ -66,7 +66,9 @@ def field_derived_registry(derived_registry: Registry) -> Registry:
     return derived_registry
 
 
-def time_filled_registry(field_derived_registry: Registry, load_time: Any = None) -> Registry:
+def time_filled_registry(
+    field_derived_registry: Registry, load_time: Any = None, existing_registry: Registry = None
+) -> Registry:
     """Backfill null time_dimension fields with load_time.
 
     Used when loading a manifest that represents a snapshot as of a known
@@ -85,6 +87,14 @@ def time_filled_registry(field_derived_registry: Registry, load_time: Any = None
     load_time : Any, optional
         The point in time this load represents, e.g. a timestamp or date
         string.
+    existing_registry : Registry, optional
+        The registry this batch is about to merge into, if any (see
+        ``Registrar.update``). Consulted for a component type's own
+        time_dimension field when this batch's own "field" table doesn't
+        declare one -- e.g. a component type whose schema was only ever
+        loaded in an earlier ``update()`` call (a scenario-local field
+        declared once at world-creation time, not re-included in every
+        later incremental write) rather than in this batch itself.
 
     Returns
     -------
@@ -101,30 +111,36 @@ def time_filled_registry(field_derived_registry: Registry, load_time: Any = None
 
     components = field_derived_registry._components
     df_field = components["field"].execute()
-    if "time_dimension" not in df_field.columns:
-        return field_derived_registry
-
     df_entity = components["entity_id"].execute()
     key_by_eid = df_entity.set_index("value")["entity_key"]
 
     time_fields: dict[str, str] = {}
-    for _, row in df_field.iterrows():
-        if not row["time_dimension"]:
-            continue
-        fname = row.get("value")
-        if pd.isna(fname):
-            continue
-        ctype = key_by_eid.get(row["entity_id"])
-        if ctype is None:
-            continue
-        fname = str(fname)
-        existing = time_fields.get(ctype)
-        if existing is not None and existing != fname:
-            raise ValueError(
-                f"Component type {ctype!r} has multiple time_dimension "
-                f"fields {sorted({existing, fname})}; only one is allowed."
-            )
-        time_fields[ctype] = fname
+    if "time_dimension" in df_field.columns:
+        for _, row in df_field.iterrows():
+            if not row["time_dimension"]:
+                continue
+            fname = row.get("value")
+            if pd.isna(fname):
+                continue
+            ctype = key_by_eid.get(row["entity_id"])
+            if ctype is None:
+                continue
+            fname = str(fname)
+            existing = time_fields.get(ctype)
+            if existing is not None and existing != fname:
+                raise ValueError(
+                    f"Component type {ctype!r} has multiple time_dimension "
+                    f"fields {sorted({existing, fname})}; only one is allowed."
+                )
+            time_fields[ctype] = fname
+
+    if existing_registry is not None and "field" in existing_registry._components and "entity_id" in existing_registry._components:
+        for ctype in components:
+            if ctype in time_fields or ctype in ("field", "entity_id", "component_type", "parent"):
+                continue
+            existing_field = existing_registry._time_dimension_field(ctype)
+            if existing_field is not None:
+                time_fields[ctype] = existing_field
 
     updated: dict = {}
     for ctype, fname in time_fields.items():
