@@ -85,11 +85,14 @@ _IACS_TO_PYTHON_TYPE: dict[str, type] = {
 
 _IBIS_DTYPE = {bool: "boolean", str: "string", int: "int64", float: "float64"}
 
-_INVALID_COLS = ["entity_id", "component_index", "component_type", "field", "value", "error_type"]
-_INVALID_DTYPES = {
-    "entity_id": "str", "component_index": "int64", "component_type": "str",
-    "field": "str", "value": "str", "error_type": "str",
-}
+_INVALID_SCHEMA = ibis.schema({
+    "entity_id": "string",
+    "component_index": "int64",
+    "component_type": "string",
+    "field": "string",
+    "value": "string",
+    "error_type": "string",
+})
 
 
 def _isnull(val) -> bool:
@@ -372,9 +375,7 @@ def _union_violations(violation_tables: list[ir.Table]) -> ir.Table:
         for vt in violation_tables[1:]:
             invalid_table = invalid_table.union(vt)
     else:
-        invalid_table = ibis.memtable(
-            pd.DataFrame(columns=_INVALID_COLS).astype(_INVALID_DTYPES)
-        )
+        invalid_table = ibis.memtable([], schema=_INVALID_SCHEMA)
     return invalid_table
 
 

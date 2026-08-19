@@ -67,11 +67,46 @@ class Registry:
             components: Dict mapping component type names to ibis Tables.
         """
         for comp_type, table in components.items():
+            if not isinstance(table, ibis.Table):
+                table = ibis.memtable(table)
+            table = self._resolve_null_typed_columns(comp_type, table)
             self._con.create_table(comp_type, table, overwrite=True)
             self._components[comp_type] = self._con.table(comp_type)
             self._schemas[comp_type] = self._con.table(comp_type).schema()
             if comp_type not in self._component_types and comp_type != "schema":
                 self._component_types.append(comp_type)
+
+    def _resolve_null_typed_columns(self, comp_type: str, table: ibis.Table) -> ibis.Table:
+        """Give a concrete type to any column DuckDB would otherwise reject.
+
+        A column with no non-null value anywhere (e.g. an optional field
+        nothing in this batch set) has nothing for pandas/pyarrow to infer a
+        concrete dtype from, so building it as an in-memory ibis table can
+        hand back a NULL-typed column -- DuckDB's own `create_table` refuses
+        those outright. Prefer the type this component type is already
+        known to have (its previous version in this registry always had
+        real data to infer from at some point); fall back to `string` for a
+        column with no prior version, matching how this codebase already
+        types every other optional, no-data-yet text field (``modifier``,
+        ``units``, ...).
+        """
+        schema = table.schema()
+        null_fields = schema.null_fields
+        if not null_fields:
+            return table
+        existing_schema = self._schemas.get(comp_type)
+        casts = {}
+        for fname in null_fields:
+            if (
+                existing_schema is not None
+                and fname in existing_schema
+                and not existing_schema[fname].is_null()
+            ):
+                dtype = existing_schema[fname]
+            else:
+                dtype = "string"
+            casts[fname] = table[fname].cast(dtype)
+        return table.mutate(**casts)
 
     def declare_schema(self, component_type: str, schema: ibis.Schema) -> None:
         """Register `component_type`'s schema without creating a physical table.
