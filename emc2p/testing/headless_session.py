@@ -1,5 +1,17 @@
 """Generic infrastructure for driving a real MCP server through a real MCP
-client -- `HeadlessSession` spawns a provider CLI as a subprocess."""
+client -- `HeadlessSession` spawns a provider CLI as a subprocess.
+
+Spawns a provider CLI (e.g. `claude -p`) as a subprocess against a
+caller-supplied `.mcp.json`, exactly the way a client connecting to that
+server would. Nothing here knows about any downstream project's MCP tool
+names, registry backend, or domain scenarios (see docs/manifest/
+history.yaml: project_history.headless_session_generalized for where this
+started). A caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`,
+and any `extra_env` its own MCP server(s) need (e.g. a database URL
+derived from a save/workdir the caller picked) -- a downstream project
+typically wraps this in its own subclass or fixture that fixes these to
+its own defaults.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +28,7 @@ from typing import Any
 import pytest
 
 # --tools "" strips every built-in tool outright, not a --disallowedTools
-# denylist, so a model under MCP-tool test can't reach for one.
+# denylist.
 _STRIP_BUILTIN_TOOLS_ARGS = ["--tools", ""]
 
 
@@ -74,8 +86,23 @@ class HeadlessProvider(ABC):
 
     @abstractmethod
     def decode_result_event(self, line: str) -> dict[str, Any] | None:
-        """Return normalized result event dict (kind/result/error/usage/
-        total_cost_usd/duration_api_ms), or None for non-result lines."""
+        """Return normalized result event dict, or None for non-result lines.
+
+        Normalized shape:
+            {
+                "kind": "result" | "error",
+                "result": str,                  # for kind == "result"
+                "error": str,                   # for kind == "error"
+                "total_cost_usd": float,
+                "usage": {
+                    "input_tokens": int,
+                    "output_tokens": int,
+                    "cache_read_input_tokens": int,
+                    "cache_creation_input_tokens": int,
+                },
+                "duration_api_ms": int,
+            }
+        """
 
 
 def _normalize_usage(usage: dict[str, Any] | None) -> dict[str, int]:
@@ -100,8 +127,21 @@ class ClaudeHeadlessProvider(HeadlessProvider):
         return True
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]:
-        # Dropping every CLAUDE*/AI_AGENT var is load-bearing: a nested
-        # claude -p can otherwise inherit and attach to this outer session.
+        """Dropping every CLAUDE*/AI_AGENT env var is load-bearing, not
+        cosmetic -- a nested `claude -p` can otherwise inherit and attach
+        to this outer session.
+
+        Confirmed live: run from inside a Claude Code Cloud session, this
+        process's own environment carries CLAUDE_CODE_SESSION_ID (plus its
+        messaging socket/token, oauth fd, container id, ...) for *this*
+        session. Passed through via a plain `{**os.environ, ...}`, the
+        nested `claude -p` subprocess picked that session ID up and
+        attached to this exact outer session's own transcript/state
+        instead of starting a fresh, isolated one. A local terminal
+        invocation never had these vars set in the first place, which is
+        presumably why this went unnoticed until first run from a Cloud
+        session.
+        """
         return {k: v for k, v in env.items() if not k.startswith("CLAUDE") and k != "AI_AGENT"}
 
     def build_command(
@@ -161,8 +201,8 @@ class CopilotHeadlessProvider(HeadlessProvider):
         return str(self.options.get("executable", "copilot"))
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]:
-        # Prevent nested sessions from accidentally inheriting current
-        # Copilot/agent runtime session wiring.
+        """Prevent nested sessions from accidentally inheriting current
+        Copilot/agent runtime session wiring."""
         blocked_prefixes = ("COPILOT_", "GITHUB_COPILOT_", "AI_AGENT")
         return {k: v for k, v in env.items() if not any(k.startswith(p) for p in blocked_prefixes)}
 
@@ -272,8 +312,15 @@ def _coerce_provider(provider: str | HeadlessProvider, options: dict[str, Any]) 
 
 
 class HeadlessSession:
-    """One continuously-running provider process, driven over stream-json --
-    keeps a single MCP server child process alive for the whole `with` block."""
+    """One continuously-running provider process, driven over stream-json.
+
+    Unlike separate one-shot calls, this keeps a single MCP server child
+    process alive for the whole `with` block, so `send_turn`'s caller can
+    inspect whatever state that server manages in between turns while it's
+    still holding it open, and so the test itself can pace the conversation
+    rather than handing the model a single "do everything" prompt with no
+    chance to inspect state along the way.
+    """
 
     def __init__(
         self,
@@ -291,7 +338,47 @@ class HeadlessSession:
         session_timeout: float = 120,
     ):
         """mcp_config/allowed_tools/cwd/model describe the MCP server under
-        test; extra_env/trace_dir/turn_timeout/session_timeout tune the run."""
+        test; the rest tune how the run behaves.
+
+        Args:
+            mcp_config: Path (absolute, or relative to `cwd`) to the
+                `.mcp.json` describing the MCP server(s) under test.
+            allowed_tools: The `mcp__<server>__*`-style tool patterns this
+                session may call -- passed straight to `claude -p
+                --allowedTools`.
+            cwd: Working directory `claude -p` is spawned in (its own
+                `.mcp.json` resolution, and typically the repo whose MCP
+                server(s) are under test).
+            model: `claude -p --model` value, e.g. a specific model ID.
+            provider: Which headless client provider to run. Supported:
+                `"claude"` (default), `"copilot"`, or a custom
+                `HeadlessProvider` implementation.
+            provider_options: Provider-specific command/flag overrides.
+            strict_tool_isolation: If True, ask provider to strip or
+                otherwise constrain built-in tools. Providers that cannot
+                hard-enforce this receive an explicit prompt preamble
+                fallback listing the allowed tools.
+            extra_env: Extra environment variables the spawned process
+                needs beyond a filtered copy of this process's own
+                environment (see `__enter__` for what's filtered out) --
+                e.g. a database URL a caller's MCP server(s) need, derived
+                from whatever workdir/save the caller picked before this
+                session was constructed.
+            trace_dir: Directory every raw stream-json line is appended to,
+                one file per session -- not just the final narrated result.
+                Diagnosing live-test flakiness needs the intermediate
+                thinking/tool_use/tool_result payloads, not only
+                send_turn's own return value. Defaults to
+                `.live_test_traces` under `cwd`. Gitignored by convention --
+                these are per-run debug artifacts, not source.
+            turn_timeout: Seconds to wait for a single send_turn's reply.
+            session_timeout: Seconds bounding the whole session's
+                wall-clock runtime (every send_turn call combined), not
+                just a single one -- the backstop for a model that's
+                technically still replying within each turn_timeout but
+                never doing anything useful (see `send_turn`'s wandering-
+                off-task note above `_STRIP_BUILTIN_TOOLS_ARGS`).
+        """
         self.mcp_config = mcp_config
         self.allowed_tools = allowed_tools
         self.cwd = cwd
@@ -308,8 +395,7 @@ class HeadlessSession:
         trace_dir.mkdir(parents=True, exist_ok=True)
         self.trace_path = trace_dir / f"{time.strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}.jsonl"
         self._trace_file = None
-        # Summed across every send_turn call this session makes, so a
-        # caller reads one session total instead of re-deriving it from the trace.
+        # Running totals across every send_turn call this session makes.
         self.total_cost_usd: float = 0.0
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
@@ -346,8 +432,14 @@ class HeadlessSession:
         return self
 
     def send_turn(self, prompt: str) -> str:
-        """Send one prompt and block for its narrated reply -- every raw
-        line is appended to self.trace_path as it arrives, not just the result."""
+        """Send one prompt on the ongoing conversation and block for its narrated reply.
+
+        Every raw line read from the subprocess -- not just the final
+        result -- is appended to `self.trace_path` as it arrives, so a
+        failure (or a passing-but-suspicious run) can be inspected after
+        the fact instead of only ever seeing the narrated text this method
+        returns.
+        """
         assert self.proc is not None and self.proc.stdin is not None
         prepared = self.provider.prepare_prompt(
             prompt,
@@ -401,7 +493,11 @@ class HeadlessSession:
 
     def usage_summary(self) -> dict:
         """This session's usage so far, summed across every send_turn call.
-        duration_api_ms is the model's own active time, not wall-clock time."""
+
+        `duration_api_ms` is time actually spent generating (the model's
+        own "active" time), not this process's wall-clock time -- the
+        metric that maps onto a usage-plan's hours-per-week allotment.
+        """
         return {
             "total_cost_usd": self.total_cost_usd,
             "input_tokens": self.total_input_tokens,
@@ -413,7 +509,16 @@ class HeadlessSession:
 
     def _fail(self, message: str) -> None:
         """close() before reading stderr, not after -- read() blocks until
-        EOF, which only arrives once close() has killed the process."""
+        EOF, which only arrives once close() has killed the process.
+
+        close() first, not stderr.read() first: read() blocks until EOF,
+        which only arrives once the subprocess exits -- but the process is
+        still alive at this point (that's the whole reason _fail was
+        called), and nothing kills it until close() runs. Reading before
+        closing deadlocks forever, silently swallowing every timeout this
+        method exists to enforce. close() sets self.proc to None, so the
+        proc handle is captured first for the stderr read afterward.
+        """
         proc = self.proc
         self.close()
         stderr = proc.stderr.read() if proc and proc.stderr else ""
@@ -424,8 +529,8 @@ class HeadlessSession:
         if self._trace_file is not None:
             self._trace_file.close()
             self._trace_file = None
-            # Persisted next to the trace unconditionally, so every live
-            # test's spend is recoverable even if the test itself fails.
+            # Kept even if the caller never reads usage_summary() --
+            # matches how the raw trace is kept regardless of pass/fail.
             usage_path = self.trace_path.with_suffix(".usage.json")
             usage_path.write_text(json.dumps(self.usage_summary(), indent=2))
         if self.proc is None:
