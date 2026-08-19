@@ -267,6 +267,10 @@ class Registrar:
         return self._registry.view_current
 
     @property
+    def get_current_value(self):
+        return self._registry.get_current_value
+
+    @property
     def view_df(self):
         return self._registry.view_df
 

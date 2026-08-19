@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Any
 
 import ibis
 import pandas as pd
@@ -406,6 +407,34 @@ class Registry:
             ValueError: If a component type has more than one time_dimension field.
         """
         return self._view(component_type, self._current_table, aliases)
+
+    def get_current_value(self, component_type: str, field: str = "value", alias: str | None = None) -> Any:
+        """The current `component_type.field` value for one entity, or None.
+
+        A safe, single-value convenience over `view_current` for the common
+        "what's this entity's current X" read -- resolves to None (rather
+        than raising) whenever there's nothing to return: `component_type`
+        isn't loaded yet, or nothing matches `alias`. Not for multi-entity
+        reads: pass a specific `alias` naming exactly one entity; use
+        `view_current` directly for a whole table.
+
+        Args:
+            component_type: The component type to read.
+            field: The field to read (defaults to "value", the sole field
+                most single-value component types use).
+            alias: An entity ref identifying exactly one entity (same
+                resolution as `view`'s own `aliases`).
+
+        Returns:
+            The current value, or None if nothing is recorded yet.
+        """
+        try:
+            df = self.view_current(f"{component_type}.{field}", aliases=alias).execute()
+        except KeyError:
+            return None
+        if df.empty:
+            return None
+        return df.iloc[-1][f"{component_type}.{field}"]
 
     def _resolve_aliases(self, aliases: str | list[str]) -> set[str]:
         """Resolve `aliases` to the union of entity_ids they match.

@@ -478,6 +478,59 @@ class TestRegistryViewCurrent:
         assert len(df) == 2
 
 
+class TestGetCurrentValue:
+    """Tests for get_current_value(), the single-value convenience over view_current()."""
+
+    @pytest.fixture
+    def scd_registry(self):
+        """A registry with a "status_reading" type whose "as_of" field is time_dimension."""
+        conn = ibis.duckdb.connect()
+        conn.create_table(
+            "entity_id",
+            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+             "path": ["test:status_reading", "test:e1", "test:e2"],
+             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+        )
+        conn.create_table(
+            "field",
+            {"entity_id": ["def1", "def1"], "value": ["as_of", "status"],
+             "time_dimension": [True, False]},
+        )
+        conn.create_table(
+            "status_reading",
+            {"entity_id": ["e1", "e1", "e2"],
+             "component_index": [0, 1, 0],
+             "modifier": pd.array([None, None, None], dtype=pd.StringDtype()),
+             "as_of": ["2024-01-01", "2024-06-01", "2024-03-01"],
+             "status": ["open", "closed", "open"]},
+        )
+        components = {
+            "entity_id": conn.table("entity_id"),
+            "field": conn.table("field"),
+            "status_reading": conn.table("status_reading"),
+        }
+        return Registry(conn, components)
+
+    def test_returns_the_current_value(self, scd_registry):
+        assert scd_registry.get_current_value("status_reading", "status", "e1") == "closed"
+
+    def test_defaults_field_to_value(self, scd_registry):
+        assert scd_registry.get_current_value("entity_id", alias="e1") == "e1"
+
+    def test_nonexistent_component_type_returns_none(self, scd_registry):
+        assert scd_registry.get_current_value("nonexistent", alias="e1") is None
+
+    def test_alias_matching_nothing_returns_none(self, scd_registry):
+        assert scd_registry.get_current_value("status_reading", "status", "no_such_alias") is None
+
+    def test_declared_but_dataless_component_type_returns_none(self, scd_registry):
+        schema = ibis.schema(
+            {"entity_id": "string", "component_index": "int64", "modifier": "string", "value": "string"}
+        )
+        scd_registry.declare_schema("empty_type", schema)
+        assert scd_registry.get_current_value("empty_type", alias="e1") is None
+
+
 class TestRegistryDatabaseRoundTrip:
     """Tests for exporting/loading a Registry to/from a database via ibis.connect."""
 
