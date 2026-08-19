@@ -724,8 +724,8 @@ def registry(
         A registry object containing the component tables.
     """
     conn = ibis.duckdb.connect()
-    conn.create_table("entity_id", entity_id_table.to_pandas(), overwrite=True)
-    conn.create_table("component_type", component_type_table.to_pandas(), overwrite=True)
+    conn.create_table("entity_id", entity_id_table.to_pyarrow(), overwrite=True)
+    conn.create_table("component_type", component_type_table.to_pyarrow(), overwrite=True)
     components = {
         "entity_id": conn.table("entity_id"),
         "component_type": conn.table("component_type"),
@@ -737,7 +737,7 @@ def registry(
             continue  # the spine table already comes from entity_id_table; a
             # bare `entity_id` component (rare/unintended) would otherwise
             # clobber it with a table of the wrong shape
-        conn.create_table(comp_type, table.to_pandas(), overwrite=True)
+        conn.create_table(comp_type, table.to_pyarrow(), overwrite=True)
         components[comp_type] = conn.table(comp_type)
     return Registry(conn, components)
 
