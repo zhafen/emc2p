@@ -54,12 +54,15 @@ SOURCE_KEY = "session"
 
 
 class RegistrarSessions:
-    """Owns every open-registry session and the two pieces of behavior a
-    caller can configure without reassigning this module's own internals:
-    `time_provider` (what "now" means, for backfilling time_dimension
-    fields -- generic emc2p has no notion of this; a caller like
-    story-simulator computes it from its own world state) and the export
-    directory names `update_registry` writes to when a session has one set.
+    """Owns every open-registry session, keyed by MCP session identity so
+    one instance serves every concurrently connected client.
+
+    Also owns the pieces of behavior a caller can configure without
+    reassigning this module's own internals: `time_provider` (what "now"
+    means, for backfilling time_dimension fields -- generic emc2p has no
+    notion of this; a caller like story-simulator computes it from its own
+    world state) and the export directory names `update_registry` writes
+    to when a session has one set.
 
     `open_tool_name` names the tool a "no registry open yet" error points
     at -- `open_registry` (this class's own, the default) unless a caller
@@ -84,9 +87,8 @@ class RegistrarSessions:
         self._export_history_dirname = export_history_dirname
         self._open_tool_name = open_tool_name
 
-    # Plain-session API -- usable in-process (e.g. keyed_subagent's own
-    # dispatch), no MCP Context needed. Each `@server.tool()`-mountable
-    # method below is a thin wrapper around one of these.
+    # Plain-session API -- usable in-process, no MCP Context needed. Each
+    # `@server.tool()`-mountable method below wraps one of these.
 
     def get_registrar(self, session) -> Registrar:
         """Return this session's open Registrar, or raise a clear error if none is open."""
@@ -273,9 +275,8 @@ class RegistrarSessions:
             "preview=True) instead of this token."
         )
 
-    # MCP tool registration -- mounts every method above onto `server`
-    # (a FastMCP instance the caller owns), each as a thin Context-taking
-    # wrapper around the plain-session method of the same name.
+    # MCP tool registration -- mounts every method above onto `server`,
+    # each as a thin Context-taking wrapper around the plain-session one.
 
     def mount(self, server: FastMCP, exclude: set[str] | None = None) -> None:
         """Register this instance's tools onto `server`.
@@ -312,10 +313,8 @@ class RegistrarSessions:
         def consolidate_review(ctx: Context, limit: int = 20) -> str:
             return self.consolidate_review(ctx.request_context.session, limit)
 
-        # description passed explicitly rather than relying on each
-        # wrapper's own (nonexistent) docstring -- Tool.from_function reads
-        # description-or-__doc__ once, at registration time, so a wrapper's
-        # docstring would need to be set *before* this call to matter at all.
+        # description passed explicitly -- Tool.from_function reads it once at
+        # registration time, before a wrapper's own docstring could be set.
         tools = {
             "open_registry": (open_registry, self.open.__doc__),
             "view_registry": (view_registry, self.view_registry.__doc__),
@@ -371,9 +370,11 @@ def _component_write_summary(registrar: Registrar, component_type: str, limit: i
 
 
 def _encode_pending_write(yaml_string: str) -> str:
-    """Self-contained confirm_token for update_registry's preview flow --
-    encodes `yaml_string` directly rather than stashing it in server-side
-    session state that a process restart between preview and confirm would lose."""
+    """Self-contained confirm_token for update_registry's preview flow.
+
+    Encodes `yaml_string` directly rather than stashing it in server-side
+    session state that a process restart between preview and confirm would lose.
+    """
     return base64.urlsafe_b64encode(yaml_string.encode()).decode()
 
 
