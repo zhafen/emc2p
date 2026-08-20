@@ -129,3 +129,60 @@ project_history:
               _seq_column itself removed the need for any reload-
               manifest-on-every-write mechanism the class-based design
               would otherwise have needed.
+    mcp_client_session_added:
+        - description: >
+              Wanted DeepSeek covered by the same live, real-MCP-wire-
+              protocol test class HeadlessSession already gives Claude/
+              Copilot. Investigated DeepSeek's own CLI first
+              (`deepseek-ai/deepseek-harness`, `dsh`) since that's the
+              cheapest fit for HeadlessProvider's existing contract --
+              real repo, MIT-licensed, but a week-old v0.1 developer
+              preview (`dsh --profile headless "<task>"` prints only the
+              final text and exits, no documented streaming/usage
+              reporting, MCP wiring via an unfamiliar YAML "patch layer"
+              rather than a drop-in .mcp.json, maintainers' own
+              compatibility-breaking-changes warning) -- not a good fit
+              for HeadlessProvider's stream-json/usage-reporting contract.
+
+              Considered reusing emc2p.agents.tool_calling_loop as-is
+              (litellm already supports DeepSeek via a
+              "deepseek/deepseek-chat"-style model string, so this would
+              have cost near-zero new code) but rejected it: that path
+              dispatches through REGISTRAR_TOOL_SPECS, a hand-mirrored
+              copy of the tool shapes, never touching the real MCP
+              server -- the same in-process coverage keyed_subagent
+              already has, not what tests/test_human_validated/ exists to
+              check (real JSON-schema generation, real Context wiring,
+              real transport behavior).
+
+              Landed emc2p.testing.mcp_client_session.McpClientSession
+              instead: it owns both halves HeadlessSession splits across
+              two collaborators (a provider CLI's own internal MCP client
+              + agent loop) itself -- mcp.client.stdio/mcp.ClientSession
+              for the real wire protocol, run_tool_calling_loop (via
+              litellm) for the model<->tool-call exchange -- so it works
+              for any litellm-supported model, DeepSeek included, without
+              depending on any provider's own external CLI. Same public
+              shape as HeadlessSession (context manager, send_turn,
+              usage_summary, trace_path) so it drops into a downstream
+              fixture in place of it.
+
+              Confirmed live during development: mcp's stdio transport
+              opens an anyio task group at connect time, and anyio
+              requires a cancel scope to be exited from the same asyncio
+              Task it was entered in -- closing it from a separate
+              `run_coroutine_threadsafe` task (the naive one-task-per-call
+              bridging approach) raised "cancel scope in a different
+              task". Fixed by running the whole session's async lifetime
+              (connect, every queued turn, teardown) inside one single
+              background task, fed through a thread-safe queue instead of
+              one task per public method call.
+
+              run_tool_calling_loop itself gained two small, backward-
+              compatible extensions to support this: `dispatch` may now
+              return an awaitable (awaited if so, so an async MCP
+              `call_tool` needs no sync wrapper), and an optional
+              `on_response` callback fires with each raw litellm response
+              for a caller (like McpClientSession) that needs live
+              per-call usage/cost instead of only the existing best-effort
+              `usage_log_path` file.

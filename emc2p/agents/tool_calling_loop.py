@@ -26,6 +26,7 @@ most emc2p-based projects have no need for this module at all.
 
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 import time
@@ -106,7 +107,9 @@ REGISTRAR_TOOL_SPECS: list[dict[str, Any]] = [
     },
 ]
 
-Dispatch = Callable[[str, dict[str, Any]], str]
+# A dispatch may return its result directly or as an awaitable -- the loop
+# below awaits it either way, so an async tool needs no sync wrapper.
+Dispatch = Callable[[str, dict[str, Any]], "str | Any"]
 
 
 async def run_tool_calling_loop(
@@ -117,6 +120,7 @@ async def run_tool_calling_loop(
     tools: list[dict[str, Any]] = REGISTRAR_TOOL_SPECS,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     usage_log_path: Path | None = None,
+    on_response: Callable[[Any], None] | None = None,
 ) -> str:
     """Answer `prompt` via `model`, letting it call `tools` (dispatched
     through `dispatch`) as many times as needed before a final text answer.
@@ -131,10 +135,18 @@ async def run_tool_calling_loop(
     (possibly empty) came back from the last call rather than looping
     forever -- a caller wanting a tighter bound (e.g. a wall-clock budget)
     enforces it around this call, not inside it.
+
+    `on_response`, if given, is called with each raw litellm response
+    object right after it comes back -- for a caller that needs live
+    usage/cost per call (e.g. accumulating a running total across several
+    of these calls) rather than only the best-effort log `usage_log_path`
+    writes to disk.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(model=model, messages=messages, tools=tools)
     _log_usage(response, usage_log_path)
+    if on_response is not None:
+        on_response(response)
 
     for _ in range(max_iterations):
         message = response.choices[0].message
@@ -148,11 +160,15 @@ async def run_tool_calling_loop(
             try:
                 arguments = json.loads(tool_call.function.arguments or "{}")
                 result = dispatch(tool_call.function.name, arguments)
+                if inspect.isawaitable(result):
+                    result = await result
             except Exception as exc:  # noqa: BLE001 -- feed the error back, don't crash the loop
                 result = f"Error: {exc}"
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result)})
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
+        if on_response is not None:
+            on_response(response)
 
     # Reached only by falling out of the `for` loop above (no `break`
     # anywhere) once `max_iterations` is exhausted without the model stopping.
