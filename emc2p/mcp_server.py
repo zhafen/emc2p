@@ -52,6 +52,10 @@ INSTRUCTIONS = (
 # the same alias hash to the same entity_id instead of forking a duplicate.
 SOURCE_KEY = "session"
 
+# The plain-session methods `dispatch()` (below) allows calling by name --
+# every other method/attribute on the instance stays unreachable that way.
+_DISPATCHABLE_METHODS = {"view_registry", "view_entity", "update_registry", "consolidate_review"}
+
 
 class RegistrarSessions:
     """Owns every open-registry session, keyed by MCP session identity so
@@ -220,6 +224,28 @@ class RegistrarSessions:
             return "Merged into the registry."
 
         return self._preview(registrar, yaml_string)
+
+    def dispatch(self, session, name: str, arguments: dict[str, Any]) -> str:
+        """Route a model-shaped tool call (a name plus a flat arguments dict) to the matching method above.
+
+        For a caller driving a model in-process via `emc2p.agents.
+        tool_calling_loop.run_tool_calling_loop` instead of real MCP
+        transport -- that loop's own `dispatch` contract is exactly
+        `(name, arguments) -> str`, one level flatter than these methods'
+        own per-tool signatures (`view_registry(session, component_type)`,
+        `update_registry(session, yaml_string, ...)`, ...), so this just
+        unpacks `arguments` as keyword arguments onto whichever method
+        `name` picks.
+
+        `name` is checked against an explicit allowlist first, not
+        resolved via bare `getattr(self, name)` -- `name` here comes from
+        a model's own output, and this instance also carries methods
+        that must stay unreachable by name (`get_registrar`, `open`, the
+        underscore-prefixed internals).
+        """
+        if name not in _DISPATCHABLE_METHODS:
+            return f"Error: unknown tool {name!r}"
+        return getattr(self, name)(session, **arguments)
 
     # Internal helpers
 

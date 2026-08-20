@@ -86,6 +86,40 @@ class TestRegistrarSessions:
             sessions.update_registry(session, "widget_a:\n    status:\n        value: active\n")
 
 
+class TestDispatch:
+    """dispatch() is the (name, arguments) -> str shape emc2p.agents.tool_calling_loop's
+    own dispatch callback expects -- see that module's REGISTRAR_TOOL_SPECS."""
+
+    def _opened(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        sessions.open(session, _db_url(tmp_path), manifest_dir=STATUS_BOARD_SCENARIO_DIR)
+        return sessions, session
+
+    def test_dispatch_routes_view_registry_by_name(self, tmp_path):
+        sessions, session = self._opened(tmp_path)
+        sessions.update_registry(session, "widget_a:\n    - status:\n        value: active\n")
+        assert "active" in sessions.dispatch(session, "view_registry", {"component_type": "status"})
+
+    def test_dispatch_routes_update_registry_by_name(self, tmp_path):
+        sessions, session = self._opened(tmp_path)
+        sessions.dispatch(session, "update_registry", {"yaml_string": "widget_a:\n    - status:\n        value: idle\n"})
+        assert "idle" in sessions.view_registry(session, "status")
+
+    def test_dispatch_rejects_unknown_tool_name(self, tmp_path):
+        sessions, session = self._opened(tmp_path)
+        result = sessions.dispatch(session, "not_a_real_tool", {})
+        assert "unknown tool" in result
+
+    def test_dispatch_does_not_expose_non_tool_methods(self, tmp_path):
+        """get_registrar/open/... are real methods on this instance, but
+        must stay unreachable through dispatch's own by-name routing --
+        the allowlist, not bare getattr, is what enforces that."""
+        sessions, session = self._opened(tmp_path)
+        for name in ("get_registrar", "set_registrar", "open", "dispatch", "_merge_and_sync"):
+            assert "unknown tool" in sessions.dispatch(session, name, {})
+
+
 class TestPreviewConfirmFlow:
     def _opened(self, tmp_path):
         sessions = RegistrarSessions()

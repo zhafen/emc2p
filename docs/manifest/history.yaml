@@ -225,3 +225,25 @@ project_history:
               job. Verified by reproducing CI's exact failure locally
               (cloning the repo fresh and running `uv sync --all-extras
               --python 3.10`) before and after the fix.
+    registrar_sessions_dispatch_added:
+        - description: >
+              story_simulator/keyed_subagent.py's own `_dispatch_tool_call`
+              (routing a model's `(name, arguments)` tool call to the
+              matching RegistrarSessions plain-session method) had nothing
+              story-simulator-specific left in it once registry read/write
+              itself moved to RegistrarSessions -- the same generalization
+              reasoning that already pulled REGISTRAR_TOOL_SPECS/
+              run_tool_calling_loop into emc2p. Added as
+              `RegistrarSessions.dispatch(session, name, arguments)`.
+
+              Considered bare `getattr(self, name)(session, **arguments)`
+              with no allowlist -- it works today, since REGISTRAR_TOOL_
+              SPECS's own JSON-schema argument names already match these
+              methods' Python parameter names exactly, but rejected it:
+              `name` here is a model's own output, and this instance also
+              carries methods that must stay unreachable that way
+              (`get_registrar`, `open`, `_merge_and_sync`, ...). Kept an
+              explicit `_DISPATCHABLE_METHODS` allowlist checked before
+              the `getattr` call, so only the four intended plain-session
+              methods are ever reachable by name, regardless of what else
+              exists on the instance.
