@@ -434,6 +434,25 @@ class TestRegistryViewCurrent:
         e1_row = df[df["entity_id"] == "e1"].iloc[0]
         assert e1_row["status_reading.status"] == "fresh"
 
+    def test_seq_column_falls_back_to_self_when_other_lacks_schema(self, scd_registry):
+        """A later merge whose own batch doesn't redeclare status_reading's
+        schema (e.g. a per-turn write that only reloads its own incremental
+        data, not the full manifest) must still get a `_seq_{field}` column
+        -- falling back to `self`'s (the accumulated registry's) own
+        already-known schema, the same fallback time_filled_registry uses
+        for backfilling values."""
+        conn = ibis.duckdb.connect()
+        conn.create_table("entity_id", {"value": ["e3"], "alias": ["e3"], "path": ["test:e3"],
+                                         "entity_key": ["e3"], "filepath": ["test"]})
+        conn.create_table("status_reading", {"entity_id": ["e3"], "component_index": [0],
+                                              "modifier": pd.array([None], dtype=pd.StringDtype()),
+                                              "as_of": ["2024-09-01"], "status": ["new"]})
+        other = Registry(conn, {
+            "entity_id": conn.table("entity_id"),
+            "status_reading": conn.table("status_reading"),
+        })
+        assert scd_registry._seq_column("status_reading", other) == "_seq_as_of"
+
     def test_no_seq_column_falls_back_gracefully(self, scd_registry):
         """A tie with no `_seq_{field}` column at all still resolves to exactly one row."""
         conn = scd_registry._con

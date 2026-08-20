@@ -200,26 +200,29 @@ class Registry:
     def _seq_column(self, component_type: str, other: "Registry") -> str | None:
         """Return `component_type`'s ``_seq_{field}`` write-order column name, if any.
 
-        Only component types with a time_dimension field get one — looked up
-        via ``other`` (not ``self``) since ``other`` just went through the
-        full validate/derive pipeline for this batch and so always has a
-        complete, resolved schema for anything it's carrying data for, even
-        for a component type ``self`` has never seen before (e.g. a caller
-        that reloads its full manifest directory alongside the incremental
-        data on every update, so ``other`` always includes schema
-        declarations, not just this batch's world-state rows).
+        Only component types with a time_dimension field get one. Checked
+        against ``other`` (this batch's own resolved schema) first, falling
+        back to ``self`` (the accumulated registry's own schema, carried
+        forward across every past merge) when ``other`` doesn't declare it
+        -- the same fallback ``derive_components.time_filled_registry`` uses
+        for backfilling time_dimension values, applied here to the sibling
+        problem of losing tie-breaking for a component type whose schema
+        was only ever declared in an earlier `update()` call, not this batch's own.
 
-        Returns ``None`` without consulting ``_time_dimension_field`` if
-        ``other`` lacks a ``field`` or ``entity_id`` table -- a minimal,
+        Returns ``None`` without consulting ``_time_dimension_field`` on a
+        registry that lacks a ``field`` or ``entity_id`` table -- a minimal,
         hand-built registry (e.g. in a unit test exercising ``merge`` in
         isolation) structurally cannot have declared any time_dimension
         field, so "no seq column" is the correct answer, not a special case
         to route around.
         """
-        if "field" not in other._components or "entity_id" not in other._components:
-            return None
-        time_field = other._time_dimension_field(component_type)
-        return f"_seq_{time_field}" if time_field else None
+        for registry in (other, self):
+            if "field" not in registry._components or "entity_id" not in registry._components:
+                continue
+            time_field = registry._time_dimension_field(component_type)
+            if time_field:
+                return f"_seq_{time_field}"
+        return None
 
     def _with_initial_sequence(self, table: ibis.Table, seq_col: str) -> ibis.Table:
         """Number every row of `table` 1..N in `seq_col`, for a component type
