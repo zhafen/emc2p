@@ -77,3 +77,55 @@ project_history:
               clear they were pure functions over already-parsed YAML plus
               a registry's own known component types, with nothing in them
               actually specific to that project's own domain.
+    registrar_sessions_class_added:
+        - description: >
+              emc2p.mcp_server grew view_registry/view_entity/
+              update_registry (preview/confirm_token flow included)/
+              consolidate_review and the save_dir export sync riding
+              along with update_registry -- all ported in from
+              story-simulator, whose own copies had nothing
+              story-simulator-specific left in them once its richer
+              update_registry (the preview/confirm_token flow and export
+              sync) existed as the only real difference from this
+              module's plainer original. Session state (which Registrar a
+              session is talking to, its optional export dir) lives on a
+              constructed RegistrarSessions instance rather than module-
+              global dicts or reassigning this module's own functions
+              from outside -- an early draft considered a downstream
+              project owning its own copy of that session-state dict
+              instead, rejected once it became clear "one shared set of
+              registrars" was the actual goal, not two dicts kept in
+              sync. `time_provider`/`export_dirname`/
+              `export_history_dirname`/`open_tool_name` are constructor-
+              injected specifically so a caller like story-simulator can
+              plug in its own domain behavior (computing "now" from its
+              own world_clock, its own export directory names, its own
+              session-opening tool's name) without emc2p itself knowing
+              anything about that domain.
+
+              The source key every write in one session must share (or
+              risk hashing the same alias to two different entity_ids
+              from two call sites) was `story_simulator.config.
+              WORLD_FILE_ID = "world"` before this move -- renamed to
+              `SOURCE_KEY = "session"` here, since nothing about it is
+              story-simulator-specific, with no backward-compatible alias
+              kept (nothing was depending on the old name yet).
+              `mount()` takes an `exclude` set of tool names so a caller
+              with its own richer session-opening tool (story-
+              simulator's `start_world`, which also bootstraps Postgres
+              and wires up an export_dir) can skip mounting this
+              module's own `open_registry`, which would otherwise let a
+              client silently swap out that already-open registrar for
+              an unrelated one mid-session.
+
+              Landed together with a real bug fix this move's first
+              draft had initially worked around instead of fixing:
+              Registry._seq_column only consulted the current write
+              batch's own freshly-loaded schema for a component type's
+              time_dimension field, not the accumulated registry's own
+              carried-forward schema -- the same class of bug
+              backfill_time_dimension_fields_using_accumulated_registry_
+              schema_too fixed for time_filled_registry. Fixing
+              _seq_column itself removed the need for any reload-
+              manifest-on-every-write mechanism the class-based design
+              would otherwise have needed.
