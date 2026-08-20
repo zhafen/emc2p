@@ -1,0 +1,25 @@
+file_info:
+    - description: >
+        Fixture for tests/test_human_validated/test_write_accuracy.py:
+        three generic widget entities plus a `status` component type,
+        used to check whether a connected model calls update_registry
+        correctly (right component type, right field, right value, right
+        entity) when handed the answer directly -- no reasoning required.
+
+status:
+    - description: A short current-status phrase for an entity (e.g.
+        "active", "idle", "broken").
+    - component_type
+    - field:
+        value:
+            description: The current status phrase.
+            type: str
+
+widget_a:
+    - description: A generic widget with no status yet.
+
+widget_b:
+    - description: A generic widget with no status yet.
+
+widget_c:
+    - description: A generic widget with no status yet.

@@ -31,6 +31,15 @@ testing = [
 agents = [
     "litellm>=1.97.0",
 ]
+# emc2p.mcp_server (a minimal MCP server exposing Registrar read/write
+# tools directly) is optional: only needed to run/test that server itself,
+# not to use Registrar/Registrar in-process.
+mcp = [
+    "mcp>=1.28.1,<2",
+]
+
+[project.scripts]
+emc2p-mcp = "emc2p.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -41,3 +50,6 @@ emc2p = ["builtins/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: tests that call the real Anthropic API (require ANTHROPIC_API_KEY, cost money, excluded from CI)",
+]

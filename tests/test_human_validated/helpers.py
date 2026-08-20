@@ -1,0 +1,66 @@
+"""Shared infrastructure for live end-to-end tests that drive emc2p-mcp
+through a real MCP client.
+
+`HeadlessSession` fixes `emc2p.testing.headless_session.HeadlessSession`'s
+generic constructor to this repo's own `.mcp.json`/allowed-tools/cwd, the
+same way a downstream project's own test suite would -- this package is
+emc2p's own dogfooding of that pattern, exercising `emc2p.mcp_server`
+directly rather than a downstream project's domain-specific wrapper
+around it.
+"""
+
+from pathlib import Path
+
+from emc2p.registrar import Registrar
+from emc2p.testing.headless_session import HeadlessSession as _Emc2pHeadlessSession
+
+REPO_ROOT = Path(__file__).parent.parent.parent
+
+# Every raw stream-json line from a HeadlessSession's `claude -p` subprocess
+# lands here, one file per session -- not just the final narrated result.
+LIVE_TRACE_DIR = REPO_ROOT / ".live_test_traces"
+
+# Cheapest available model. Kept deliberately weak rather than swapped for
+# a stronger one -- these tools need to hold up under a bad model's mistakes.
+LOW_QUALITY_MODEL = "claude-haiku-4-5-20251001"
+
+_ALLOWED_TOOLS = ["mcp__emc2p__*"]
+
+
+class HeadlessSession(_Emc2pHeadlessSession):
+    """emc2p's own `HeadlessSession`: fixes the generic constructor to
+    this repo's own `.mcp.json`/allowed-tools/cwd."""
+
+    def __init__(
+        self,
+        *,
+        model: str = LOW_QUALITY_MODEL,
+        turn_timeout: float = 240,
+        session_timeout: float = 120,
+    ):
+        super().__init__(
+            mcp_config=REPO_ROOT / ".mcp.json",
+            allowed_tools=_ALLOWED_TOOLS,
+            cwd=REPO_ROOT,
+            model=model,
+            trace_dir=LIVE_TRACE_DIR,
+            turn_timeout=turn_timeout,
+            session_timeout=session_timeout,
+        )
+
+
+def _load_registrar(db_path: Path, narration: str) -> Registrar:
+    """Confirm `db_path` was actually created, then load it.
+
+    A weak model can narrate a plausible-sounding scene without ever
+    calling `open_registry` -- or call it with a subtly wrong
+    `database_url` it mistyped out of the prompt's text -- so this checks
+    the database file actually exists before trying to read it, rather
+    than hitting a confusing raw `ibis`/duckdb error partway through.
+    """
+    assert db_path.exists(), (
+        f"No database file exists at {db_path} -- open_registry was not "
+        f"actually called for this exact database_url despite this "
+        f"narration: {narration!r}"
+    )
+    return Registrar.load(f"duckdb:///{db_path}")
