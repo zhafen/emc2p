@@ -186,3 +186,42 @@ project_history:
               for a caller (like McpClientSession) that needs live
               per-call usage/cost instead of only the existing best-effort
               `usage_log_path` file.
+    mcp_client_session_tests_stopped_constructing_litellm_types_directly:
+        - description: >
+              tests/testing/test_mcp_client_session.py originally built its
+              scripted fake model responses out of litellm's own pydantic
+              types (litellm.types.utils.Message/ModelResponse/...) to
+              stay realistic. CI's Python 3.10 job failed on all but 2 of
+              those tests with pydantic.errors.PydanticUserError: `Message`
+              is not fully defined; you should define
+              `ChatCompletionReasoningSummaryTextBlock`, then call
+              `Message.model_rebuild()` -- even though the exact same
+              locked litellm/pydantic/mcp versions passed cleanly under
+              Python 3.11 (confirmed by reproducing the identical uv.lock-
+              pinned environment locally under both interpreters). An
+              explicit `Message.model_rebuild(force=True)` didn't fix it
+              either -- it failed with `PydanticUndefinedAnnotation: name
+              'ChatCompletionReasoningSummaryTextBlock' is not defined`,
+              confirming a genuine Python-3.10-specific gap in how pydantic
+              resolves a nested TypedDict's own string forward-reference
+              (`ChatCompletionReasoningItem.summary: list["ChatCompletion
+              ReasoningSummaryTextBlock"]`, both TypedDicts declared in the
+              same litellm module), not a rebuild-ordering issue this
+              project's own code was doing wrong.
+
+              Fixed by not depending on litellm's exact pydantic types
+              resolving cleanly at all: replaced the fake responses with
+              plain dataclasses (_FakeMessage/_FakeToolCall/...)
+              implementing only the duck-typed contract
+              run_tool_calling_loop and McpClientSession actually read
+              (`.choices[0].message.content`/`.tool_calls`,
+              `message.model_dump(exclude_none=True)`, `.usage.
+              prompt_tokens`/`.completion_tokens`). More robust than the
+              original approach regardless of this specific bug -- these
+              tests exist to check McpClientSession's own logic (real MCP
+              round trip, usage accumulation, trace writing, timeout
+              handling), not whether litellm's own response objects
+              construct correctly, which is litellm's own test suite's
+              job. Verified by reproducing CI's exact failure locally
+              (cloning the repo fresh and running `uv sync --all-extras
+              --python 3.10`) before and after the fix.

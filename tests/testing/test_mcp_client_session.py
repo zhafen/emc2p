@@ -9,17 +9,72 @@ trips) without depending on any model's actual judgment -- that's what
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from litellm.types.utils import ChatCompletionMessageToolCall, Choices, Function, Message, ModelResponse, Usage
 
 from emc2p.testing.mcp_client_session import McpClientSession
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 STATUS_BOARD_SCENARIO_DIR = REPO_ROOT / "tests" / "data" / "scenarios" / "status_board"
 FAKE_MODEL = "deepseek/deepseek-chat"
+
+
+# Plain duck-typed doubles for litellm's response shape, not litellm's own
+# pydantic types -- see docs/manifest/history.yaml: project_history.mcp_client_session_added for why.
+@dataclass
+class _FakeFunction:
+    name: str
+    arguments: str
+
+
+@dataclass
+class _FakeToolCall:
+    id: str
+    function: _FakeFunction
+    type: str = "function"
+
+
+@dataclass
+class _FakeMessage:
+    content: str | None = None
+    tool_calls: list[_FakeToolCall] | None = None
+    role: str = "assistant"
+
+    def model_dump(self, exclude_none: bool = False) -> dict:
+        data = {
+            "role": self.role,
+            "content": self.content,
+            "tool_calls": [
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in self.tool_calls
+            ]
+            if self.tool_calls
+            else None,
+        }
+        return {k: v for k, v in data.items() if v is not None} if exclude_none else data
+
+
+@dataclass
+class _FakeUsage:
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    prompt_tokens_details: object = None
+
+
+@dataclass
+class _FakeChoice:
+    message: _FakeMessage
+
+
+@dataclass
+class _FakeResponse:
+    choices: list[_FakeChoice]
+    model: str
+    usage: _FakeUsage
 
 
 def _mcp_config(tmp_path: Path) -> Path:
@@ -39,28 +94,24 @@ def _session(tmp_path: Path, *, allowed_tools: list[str] | None = None, **kwargs
     )
 
 
-def _tool_call_response(name: str, arguments: dict, *, call_id: str = "call_1") -> ModelResponse:
-    message = Message(
-        content=None,
-        role="assistant",
-        tool_calls=[ChatCompletionMessageToolCall(id=call_id, function=Function(name=name, arguments=json.dumps(arguments)))],
-    )
-    return ModelResponse(
-        choices=[Choices(message=message)],
+def _tool_call_response(name: str, arguments: dict, *, call_id: str = "call_1") -> _FakeResponse:
+    message = _FakeMessage(content=None, tool_calls=[_FakeToolCall(id=call_id, function=_FakeFunction(name=name, arguments=json.dumps(arguments)))])
+    return _FakeResponse(
+        choices=[_FakeChoice(message=message)],
         model=FAKE_MODEL,
-        usage=Usage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+        usage=_FakeUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
     )
 
 
-def _text_response(text: str) -> ModelResponse:
-    return ModelResponse(
-        choices=[Choices(message=Message(content=text, role="assistant"))],
+def _text_response(text: str) -> _FakeResponse:
+    return _FakeResponse(
+        choices=[_FakeChoice(message=_FakeMessage(content=text))],
         model=FAKE_MODEL,
-        usage=Usage(prompt_tokens=8, completion_tokens=3, total_tokens=11),
+        usage=_FakeUsage(prompt_tokens=8, completion_tokens=3, total_tokens=11),
     )
 
 
-def _patched_model(*responses: ModelResponse):
+def _patched_model(*responses: _FakeResponse):
     return patch("emc2p.agents.tool_calling_loop.litellm.acompletion", new=AsyncMock(side_effect=list(responses)))
 
 
