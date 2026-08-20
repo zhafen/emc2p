@@ -1,13 +1,10 @@
 """Live regression checking the *write* stage in isolation, over emc2p's
-own minimal MCP server (`emc2p.mcp_server`).
+own MCP server (`emc2p.mcp_server`).
 
-Given the already-decided outcome directly (no reasoning required), does
-the model still call update_registry correctly: right component type,
-right field, right value, on the right entity?
+Given already decided narrative data does the model still call update_registry
+correctly: right component type, right field, right value, on the right entity?
 
-Generic (no downstream project's own domain concepts -- no event/
-advance_simulation loop, just open_registry/view_registry/view_entity/
-update_registry): three plain widget entities, one `status` component
+Generic: three plain widget entities, one `status` component
 (tests/data/scenarios/status_board/manifest.yaml), nothing to reason
 about, so a failure here isolates the write step itself rather than
 whether the model can also work out what to write.
