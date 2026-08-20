@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import Any
 
 import ibis
 import pandas as pd
@@ -14,9 +15,12 @@ _TABLE_META_COLS = {"entity_id", "component_index", "modifier"}
 
 def _format_field_value(value) -> str:
     """Render a field value the way a caller reading this as plain text
-    expects -- YAML/JSON-style true/false/null rather than Python's
-    True/False/None or pandas's float NaN for a missing value, none of
-    which mean anything outside their own library's repr."""
+    expects.
+
+    YAML/JSON-style true/false/null rather than Python's True/False/None
+    or pandas's float NaN for a missing value, none of which mean anything
+    outside their own library's repr.
+    """
     if value is True:
         return "true"
     if value is False:
@@ -188,11 +192,7 @@ class Registry:
                 self.update({comp_type: incoming_table.to_pyarrow()})
 
         # Carry forward any of other's declared-but-dataless schemas (see
-        # declare_schema) too, not just its physical tables, so a component
-        # type declared once (e.g. by a manifest loaded in one update) stays
-        # known on self across every later update that merges this one in —
-        # merge is the only path new schema knowledge has into a Registrar's
-        # long-lived registry.
+        # declare_schema) too, not just its physical tables.
         for comp_type, schema in other._schemas.items():
             if comp_type not in other.component_types:
                 self.declare_schema(comp_type, schema)
@@ -200,27 +200,29 @@ class Registry:
     def _seq_column(self, component_type: str, other: "Registry") -> str | None:
         """Return `component_type`'s ``_seq_{field}`` write-order column name, if any.
 
-        Only component types with a time_dimension field get one — looked up
-        via ``other`` (not ``self``) since ``other`` just went through the
-        full validate/derive pipeline for this batch and so always has a
-        complete, resolved schema for anything it's carrying data for, even
-        for a component type ``self`` has never seen before (see
-        ``story_simulator.spatial.merge_yaml_string``: every update reloads
-        the full manifest directory alongside the incremental data, so
-        ``other`` always includes schema declarations, not just this batch's
-        world-state rows).
+        Only component types with a time_dimension field get one. Checked
+        against ``other`` (this batch's own resolved schema) first, falling
+        back to ``self`` (the accumulated registry's own schema, carried
+        forward across every past merge) when ``other`` doesn't declare it
+        -- the same fallback ``derive_components.time_filled_registry`` uses
+        for backfilling time_dimension values, applied here to the sibling
+        problem of losing tie-breaking for a component type whose schema
+        was only ever declared in an earlier `update()` call, not this batch's own.
 
-        Returns ``None`` without consulting ``_time_dimension_field`` if
-        ``other`` lacks a ``field`` or ``entity_id`` table -- a minimal,
+        Returns ``None`` without consulting ``_time_dimension_field`` on a
+        registry that lacks a ``field`` or ``entity_id`` table -- a minimal,
         hand-built registry (e.g. in a unit test exercising ``merge`` in
         isolation) structurally cannot have declared any time_dimension
         field, so "no seq column" is the correct answer, not a special case
         to route around.
         """
-        if "field" not in other._components or "entity_id" not in other._components:
-            return None
-        time_field = other._time_dimension_field(component_type)
-        return f"_seq_{time_field}" if time_field else None
+        for registry in (other, self):
+            if "field" not in registry._components or "entity_id" not in registry._components:
+                continue
+            time_field = registry._time_dimension_field(component_type)
+            if time_field:
+                return f"_seq_{time_field}"
+        return None
 
     def _with_initial_sequence(self, table: ibis.Table, seq_col: str) -> ibis.Table:
         """Number every row of `table` 1..N in `seq_col`, for a component type
@@ -330,14 +332,14 @@ class Registry:
     @property
     def known_component_types(self) -> list[str]:
         """Every component type this registry knows about, whether any
-        entity has written data to it yet or not -- a superset of
-        `component_types` (data-bearing only). Includes types declared via
-        `declare_schema` (e.g. carried forward on merge from a loaded
-        manifest, see `merge`'s own docstring) that nothing has recorded
-        data for yet -- `component_types` alone can't distinguish "this
-        type doesn't exist" from "this type exists but nobody's used it
-        yet", which is exactly the gap that let a type like `location` go
-        unnoticed until something actually wrote to it.
+        entity has written data to it yet or not -- a superset of `component_types`.
+
+        Includes types declared via `declare_schema` (e.g. carried forward
+        on merge from a loaded manifest, see `merge`'s own docstring) that
+        nothing has recorded data for yet -- `component_types` alone can't
+        distinguish "this type doesn't exist" from "this type exists but
+        nobody's used it yet", which is exactly the gap that let a type
+        like `location` go unnoticed until something actually wrote to it.
         """
         return list(self._schemas)
 
@@ -408,6 +410,34 @@ class Registry:
             ValueError: If a component type has more than one time_dimension field.
         """
         return self._view(component_type, self._current_table, aliases)
+
+    def get_current_value(self, component_type: str, field: str = "value", alias: str | None = None) -> Any:
+        """The current `component_type.field` value for one entity, or None.
+
+        A safe, single-value convenience over `view_current` for the common
+        "what's this entity's current X" read -- resolves to None (rather
+        than raising) whenever there's nothing to return: `component_type`
+        isn't loaded yet, or nothing matches `alias`. Not for multi-entity
+        reads: pass a specific `alias` naming exactly one entity; use
+        `view_current` directly for a whole table.
+
+        Args:
+            component_type: The component type to read.
+            field: The field to read (defaults to "value", the sole field
+                most single-value component types use).
+            alias: An entity ref identifying exactly one entity (same
+                resolution as `view`'s own `aliases`).
+
+        Returns:
+            The current value, or None if nothing is recorded yet.
+        """
+        try:
+            df = self.view_current(f"{component_type}.{field}", aliases=alias).execute()
+        except KeyError:
+            return None
+        if df.empty:
+            return None
+        return df.iloc[-1][f"{component_type}.{field}"]
 
     def _resolve_aliases(self, aliases: str | list[str]) -> set[str]:
         """Resolve `aliases` to the union of entity_ids they match.
@@ -488,11 +518,7 @@ class Registry:
                 pairs.append((table_name, field))
 
         # Group fields by table so that multiple fields from the same table
-        # are selected together in a single pass. Joining separately-selected
-        # single-field sub-tables back together on entity_id alone would
-        # cross-join any table with more than one row per entity_id (e.g. a
-        # component with several instances, or SCD history), decorrelating
-        # fields that belong to the same row.
+        # are selected together in a single pass.
         fields_by_table: dict[str, list[str]] = {}
         for table_name, field in pairs:
             fields = fields_by_table.setdefault(table_name, [])
@@ -601,16 +627,15 @@ class Registry:
         return df
 
     def summarize_components(self, limit: int = 20) -> str:
-        """Markdown report of every component type currently holding data
-        (`component_types`, not the larger `known_component_types` --
-        nothing to report on a type nobody's written to yet), one
-        section per type with its row count and up to `limit` sample
-        rows.
+        """Markdown report of every component type currently holding data, one
+        section per type with its row count and up to `limit` sample rows.
 
-        Unlike `view_df` (one type at a time), this covers everything in
-        one call. Purely a data report -- no judgment or instructions
-        attached to it; a caller wanting to prompt a reader toward
-        consolidating duplicate/misplaced data on top of this (e.g.
+        Only `component_types` (data-bearing), not the larger
+        `known_component_types` -- nothing to report on a type nobody's
+        written to yet. Unlike `view_df` (one type at a time), this covers
+        everything in one call. Purely a data report -- no judgment or
+        instructions attached to it; a caller wanting to prompt a reader
+        toward consolidating duplicate/misplaced data on top of this (e.g.
         `validate_write`'s consolidation guidance, composed in by
         `commands.cmd_review_components`) is free to add its own.
         """

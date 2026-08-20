@@ -322,9 +322,7 @@ class TestLoadManifest:
             df_all = a_all.registry.get(comp_type).execute()
             df_inc = a_inc.registry.get(comp_type).execute()
             # _seq_{field} (see Registry.merge) is assigned independently per
-            # load -- a single-shot load and a file-by-file incremental load
-            # legitimately assign different sequence numbers, so it isn't
-            # comparable here, the same way component_index already wasn't.
+            # load, so it isn't comparable here.
             seq_cols = [c for c in df_all.columns if c.startswith("_seq_")]
             df_all = df_all.drop(columns=seq_cols)
             df_inc = df_inc.drop(columns=[c for c in seq_cols if c in df_inc.columns])
@@ -411,10 +409,11 @@ class TestUpdate:
         ) == [5, 5, 5]
 
     def test_update_same_time_dimension_value_resolves_deterministically(self):
-        """Two updates tied on the same time_dimension value (e.g. two writes in
-        the same in-world turn) must still resolve to one deterministic
-        current row -- not an arbitrary, backend-dependent one (see
-        `_seq_{field}`, assigned by `Registry.merge`).
+        """Two updates tied on the same time_dimension value (e.g. two
+        writes in the same in-world turn) must still resolve to one row.
+
+        Not an arbitrary, backend-dependent one (see `_seq_{field}`,
+        assigned by `Registry.merge`).
         """
         example_dir = Path("examples/game_data")
 
@@ -451,9 +450,11 @@ class TestUpdate:
         assert all(result == [2, 2, 2] for result in results), results
 
     def test_same_as_by_path_targets_entity_from_a_prior_update(self):
-        """same_as's path-based `value` can target an entity registered by an
-        earlier, separate `update()` call, not just one in the same batch —
-        the existing registry's entity_id table is passed into derive.
+        """same_as's path-based `value` can target an entity registered by
+        an earlier, separate `update()` call, not just one in the same batch.
+
+        The existing registry's entity_id table is passed into derive
+        for this.
         """
         r = Registrar()
         r.update(yaml_strings={
@@ -481,9 +482,10 @@ class TestUpdate:
 
     def test_same_as_by_raw_hash_in_value_targets_entity(self):
         """same_as's `value` (normally a path/alias) also accepts the raw
-        entity_id hash directly, the same as the dedicated
-        `target_entity_id` field — candidate_entity_ids tries an exact hash
-        match before falling back to alias/path resolution.
+        entity_id hash directly, the same as the dedicated `target_entity_id` field.
+
+        candidate_entity_ids tries an exact hash match before falling
+        back to alias/path resolution.
         """
         r = Registrar()
         r.update(yaml_strings={
@@ -508,10 +510,10 @@ class TestUpdate:
 
     def test_entity_ref_field_resolves_by_raw_hash(self):
         """A generic entity_ref field (relation's `value`, not just
-        same_as.value) can also reference an entity precisely by its raw
-        hash, not just by path/alias. Unlike same_as (which explicitly
-        searches the existing registry too, see
-        `test_same_as_by_path_targets_entity_from_a_prior_update`),
+        same_as.value) can also reference an entity precisely by its raw hash.
+
+        Unlike same_as (which explicitly searches the existing registry
+        too, see `test_same_as_by_path_targets_entity_from_a_prior_update`),
         ordinary entity_ref resolution only sees entities in the same
         update() batch, so both entities are declared together here; the
         referenced entity's hash is computed the same deterministic way

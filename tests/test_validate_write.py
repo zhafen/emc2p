@@ -3,9 +3,7 @@
 import emc2p.validate_write as validate_write
 
 
-# ---------------------------------------------------------------------------
 # referenced_component_types
-# ---------------------------------------------------------------------------
 
 class TestReferencedComponentTypes:
 
@@ -26,9 +24,7 @@ class TestReferencedComponentTypes:
         assert validate_write.referenced_component_types(parsed) == set()
 
 
-# ---------------------------------------------------------------------------
 # component_types_defined_inline
-# ---------------------------------------------------------------------------
 
 class TestComponentTypesDefinedInline:
 
@@ -41,9 +37,7 @@ class TestComponentTypesDefinedInline:
         assert validate_write.component_types_defined_inline(parsed) == set()
 
 
-# ---------------------------------------------------------------------------
 # find_component_named_as_nested_entity
-# ---------------------------------------------------------------------------
 
 class TestFindComponentNamedAsNestedEntity:
 
@@ -68,9 +62,7 @@ class TestFindComponentNamedAsNestedEntity:
         assert validate_write.find_component_named_as_nested_entity("not: [valid: yaml", {"location"}) == []
 
 
-# ---------------------------------------------------------------------------
 # find_unknown_component_types
-# ---------------------------------------------------------------------------
 
 class TestFindUnknownComponentTypes:
 
@@ -94,10 +86,8 @@ class TestFindUnknownComponentTypes:
             "    - brand_new_component:\n"
             "        value: hello\n"
         )
-        # `component_type` is itself a referenced marker in this YAML (the
-        # declaration shape itself), so a realistic `known` set must
-        # include it too -- only `brand_new_component` is the thing
-        # actually being defined inline here.
+        # `component_type` is itself a referenced marker in this YAML, so a
+        # realistic `known` set must include it too.
         result = validate_write.find_unknown_component_types(
             yaml_string, {"description", "component_type"}
         )

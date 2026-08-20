@@ -58,9 +58,12 @@ def test_exact_alias_match_preferred_over_substring(entity_id_df_with_alias):
 
 
 def test_container_alias_resolves_despite_being_path_prefix_of_child(entity_id_df_with_alias):
-    """A container's own alias ("core_requirement") is a substring of its
-    child's path too ("core_requirement.first_subrequirement"), but the
-    exact-alias match must resolve it unambiguously to the container."""
+    """A container's own alias is a substring of its child's path too
+    ("core_requirement" vs "core_requirement.first_subrequirement").
+
+    The exact-alias match must resolve it unambiguously to the
+    container despite that.
+    """
     result = candidate_entity_ids("core_requirement", entity_id_df_with_alias)
     assert result == ["ccc333ccc333"]
 
@@ -71,9 +74,12 @@ def test_falls_back_to_substring_when_no_exact_alias_match(entity_id_df_with_ali
 
 
 def test_exact_hash_match_preferred_over_alias_and_substring(entity_id_df_with_alias):
-    """A raw entity_id hash resolves to itself, even before the alias/path
-    resolutions are tried — so any entity_ref-typed field (or
-    same_as.value) can reference an entity precisely by hash, the same as
-    same_as.target_entity_id does explicitly."""
+    """A raw entity_id hash resolves to itself, even before the
+    alias/path resolutions are tried.
+
+    So any entity_ref-typed field (or same_as.value) can reference an
+    entity precisely by hash, the same as same_as.target_entity_id
+    does explicitly.
+    """
     result = candidate_entity_ids("aaa111aaa111", entity_id_df_with_alias)
     assert result == ["aaa111aaa111"]

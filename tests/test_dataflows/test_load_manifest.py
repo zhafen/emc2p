@@ -13,9 +13,7 @@ from emc2p.registry import Registry
 from emc2p.utils import dhash
 
 
-# ---------------------------------------------------------------------------
 # Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def minimal_yaml_dir(tmp_path):
@@ -46,9 +44,7 @@ def multi_file_yaml_dir(tmp_path):
     return str(tmp_path)
 
 
-# ---------------------------------------------------------------------------
 # raw_entity_first_data
-# ---------------------------------------------------------------------------
 
 def _yaml_strings(input_dirs, yaml_strings=None) -> dict:
     return load_manifest.raw_strings(input_dirs, yaml_strings=yaml_strings)["raw_yaml_strings"]
@@ -146,8 +142,10 @@ class TestRawEntityFirstDataMalformedComponents:
 
     def test_null_placeholder_entity_does_not_raise(self):
         """A bare `key:` with nothing after the colon is a legitimate,
-        componentless placeholder entity (e.g. iacs_manifest/iacs.yaml's
-        `required_functionality:` block), not a malformed component list."""
+        componentless placeholder entity, not a malformed component list.
+
+        E.g. iacs_manifest/iacs.yaml's `required_functionality:` block.
+        """
         given = {
             "inline": (
                 "container:\n"
@@ -171,9 +169,7 @@ class TestRawEntityFirstDataMalformedComponents:
         assert result == {"inline": {}}
 
 
-# ---------------------------------------------------------------------------
-# raw_strings — combining input_dirs with directly-provided yaml/python strings
-# ---------------------------------------------------------------------------
+# raw_strings -- combining input_dirs with directly-provided yaml/python strings
 
 class TestRawStrings:
 
@@ -240,9 +236,7 @@ class TestRawStrings:
         assert "my_task" in self._all_entities(entities)
 
 
-# ---------------------------------------------------------------------------
-# load_manifest — accepting yaml/python strings directly via the Hamilton driver
-# ---------------------------------------------------------------------------
+# load_manifest -- accepting yaml/python strings directly via the Hamilton driver
 
 class TestLoadManifestAcceptsStrings:
 
@@ -281,9 +275,7 @@ class TestLoadManifestAcceptsStrings:
         assert any(k.endswith("minimal.yaml") for k in user_keys)
 
 
-# ---------------------------------------------------------------------------
 # registry
-# ---------------------------------------------------------------------------
 
 def _make_entity_id_table():
     df = pd.DataFrame([{
@@ -323,9 +315,7 @@ class TestRegistry:
         assert "task" in result.component_types
 
 
-# ---------------------------------------------------------------------------
 # pathvalue_pairs
-# ---------------------------------------------------------------------------
 
 _FILE_ID = "test.yaml"
 
@@ -440,18 +430,14 @@ class TestPathvaluePairs:
         assert "file_b.yaml:entity_b[0].description" in df["path"].values
 
 
-# ---------------------------------------------------------------------------
 # entity_id_table and component_type_table
-# ---------------------------------------------------------------------------
 
 def _pvp(pairs: list[tuple[str, str]]) -> ibis.Table:
     """Create a pathvalue_pairs ibis Table from (path, value) tuples."""
     return ibis.memtable(pd.DataFrame(pairs, columns=["path", "value"]))
 
 
-# ---------------------------------------------------------------------------
 # component_tables
-# ---------------------------------------------------------------------------
 
 class TestComponentTables:
 
@@ -532,9 +518,7 @@ class TestComponentTables:
         assert "component_index" in df.columns
 
 
-# ---------------------------------------------------------------------------
 # raw_csv_data
-# ---------------------------------------------------------------------------
 
 class TestRawCsvData:
 
@@ -594,9 +578,7 @@ class TestRawCsvData:
             assert isinstance(df, pd.DataFrame)
 
 
-# ---------------------------------------------------------------------------
 # csv_component_tables
-# ---------------------------------------------------------------------------
 
 class TestCsvComponentTables:
 
@@ -674,9 +656,7 @@ class TestCsvComponentTables:
         assert df["entity_id"].nunique() == 2
 
 
-# ---------------------------------------------------------------------------
 # csv_spine
-# ---------------------------------------------------------------------------
 
 class TestCsvSpine:
 
@@ -737,9 +717,7 @@ class TestCsvSpine:
         assert df.iloc[0]["filepath"] == file_id
 
 
-# ---------------------------------------------------------------------------
 # component_tables union with csv_component_tables
-# ---------------------------------------------------------------------------
 
 class TestComponentTablesWithCsv:
 

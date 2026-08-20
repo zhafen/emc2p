@@ -44,15 +44,16 @@ def register_builtins_dir(path: str | Path, tag: str) -> None:
 
 def builtins_tags() -> list[str]:
     """Return every registered builtins tag (``"builtins"`` plus any added
-    via ``register_builtins_dir``), for a caller that needs to recognize
-    builtins-sourced entities by their file identifier prefix (e.g.
-    ``export_manifest``'s exclusion of them from manifest export)."""
+    via ``register_builtins_dir``).
+
+    For a caller that needs to recognize builtins-sourced entities by
+    their file identifier prefix (e.g. ``export_manifest``'s exclusion of
+    them from manifest export).
+    """
     return [tag for tag, _ in _BUILTINS_DIRS]
 
 
-# ---------------------------------------------------------------------------
-# Source subdags — each produces raw_entity_first_data keyed by file_id
-# ---------------------------------------------------------------------------
+# Source subdags -- each produces raw_entity_first_data keyed by file_id
 
 def _file_id(path: Path, cwd: Path) -> str:
     """Identify a file by its path relative to cwd, falling back to the full path."""
@@ -162,9 +163,7 @@ def raw_entity_first_data(
     return {**yaml_entity_first_data, **python_entity_first_data}
 
 
-# ---------------------------------------------------------------------------
-# CSV loading (stays inline — CSV doesn't fit the entity-first dict format)
-# ---------------------------------------------------------------------------
+# CSV loading (stays inline -- CSV doesn't fit the entity-first dict format)
 
 def raw_csv_data(input_dirs: list[str | Path]) -> dict[str, pd.DataFrame]:
     """Load CSV files from a list of files or directories (user-provided only, not builtins).
@@ -310,9 +309,7 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
     return ibis.memtable(spine_df)
 
 
-# ---------------------------------------------------------------------------
-# Shared pipeline: entity-first dict → component tables → Registry
-# ---------------------------------------------------------------------------
+# Shared pipeline: entity-first dict -> component tables -> Registry
 
 def _add_component_pairs(
     entity_path: str, index: int, component, result: list
@@ -439,10 +436,12 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
 
 
 def pathvalue_pairs(raw_entity_first_data: dict) -> ir.Table:
-    """Convert the raw entity-first data into a database table with two fields:
-    path and value, both of type str. This is the first step in the transformation
-    process, and serves as a way to inspect the raw data in a tabular format before
-    applying the more complex transformations.
+    """Convert the raw entity-first data into a database table with two
+    fields: path and value, both of type str.
+
+    The first step in the transformation process, serving as a way to
+    inspect the raw data in a tabular format before applying the more
+    complex transformations.
 
     Each path is prefixed with the file identifier using a ':' separator, e.g.
     "examples/foo.yaml:my_entity[0].description".
@@ -734,9 +733,8 @@ def registry(
         if comp_type == "component_type":
             continue  # flags already incorporated into component_type_table
         if comp_type == "entity_id":
-            continue  # the spine table already comes from entity_id_table; a
-            # bare `entity_id` component (rare/unintended) would otherwise
-            # clobber it with a table of the wrong shape
+            continue  # the spine table already comes from entity_id_table;
+            # a bare `entity_id` component here would clobber it.
         conn.create_table(comp_type, table.to_pyarrow(), overwrite=True)
         components[comp_type] = conn.table(comp_type)
     return Registry(conn, components)

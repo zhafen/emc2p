@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Live-test infrastructure: per-run debug artifacts, not source.
+.live_test_traces/

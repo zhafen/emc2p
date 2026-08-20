@@ -58,6 +58,37 @@ class TestTimeFilledRegistry:
         result = time_filled_registry(registry, load_time="2024-12-25")
         assert result is registry
 
+    def test_falls_back_to_existing_registry_schema_when_batch_omits_it(self):
+        """A component type's time_dimension field can have been declared in
+        an earlier update() call rather than this batch's own -- e.g. a
+        scenario-local field only ever loaded once, at world-creation time,
+        not re-included in every later incremental write."""
+        existing_registry = _status_reading_registry()
+        batch = make_registry({
+            "entity_id": [{"value": "other_def", "entity_key": "other_type"}],
+            "field": [
+                {"entity_id": "other_def", "component_index": 0, "value": "note", "time_dimension": False},
+            ],
+            "status_reading": [
+                {"entity_id": "e3", "component_index": 0, "as_of": None, "status": "open"},
+                {"entity_id": "e4", "component_index": 0, "as_of": "2024-02-02", "status": "closed"},
+            ],
+        })
+        result = time_filled_registry(batch, load_time="2024-12-25", existing_registry=existing_registry)
+        df = result._components["status_reading"].execute()
+        assert df.set_index("entity_id").loc["e3", "as_of"] == "2024-12-25"
+        assert df.set_index("entity_id").loc["e4", "as_of"] == "2024-02-02"
+
+    def test_existing_registry_without_schema_tables_does_not_error(self):
+        """A brand-new existing_registry (no prior update() calls yet) has no
+        "field"/"entity_id" tables at all -- must not be treated as knowing
+        about every component type's schema."""
+        existing_registry = make_registry({"status_reading": [{"entity_id": "e9"}]})
+        registry = _status_reading_registry()
+        result = time_filled_registry(registry, load_time="2024-12-25", existing_registry=existing_registry)
+        df = result._components["status_reading"].execute()
+        assert df.set_index("entity_id").loc["e1", "as_of"] == "2024-12-25"
+
     def test_multiple_time_dimension_fields_raises(self):
         registry = make_registry({
             "entity_id": [{"value": "def1", "entity_key": "status_reading"}],

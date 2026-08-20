@@ -1,0 +1,249 @@
+file_info:
+    - description: >
+          Non-actionable historical context pulled out of code comments and
+          docstrings, kept here instead of scattered across the codebase.
+          In-file documentation should explain what the current code does
+          and why it's shaped that way when that's non-obvious -- not how
+          it got here. When a comment's "why" is really "here's the story
+          of how this came to be" (an incident it was hardened against, a
+          module it was extracted or generalized from, a project it
+          originated in), that narrative belongs here instead, with the
+          code left pointing at the relevant entry below.
+    - file_info
+
+project_history:
+    data:
+        - description: >
+              Non-actionable historical record of how emc2p reached its
+              current shape.
+    keyed_subagent_loop_generalized:
+        - description: >
+              emc2p.agents.keyed_subagent.run_tool_calling_loop started as
+              a downstream project's own "keyed_subagent" event responder:
+              a nested specialist call on that project's own API key, no
+              MCP round-trip, needing a judgment prompt answered by a model
+              that could actually read/write its registry
+              (view_registry/view_entity/update_registry/
+              consolidate_review), not just narrate a decision for
+              something else to apply. Confirmed live there that a
+              tool-less completion structurally can't do that: 50 calls in
+              one run, zero real writes, zero recorded progress -- the
+              text kept describing outcomes that never got persisted, so
+              the same events just kept getting re-asked until the run's
+              own time budget ran out. Generalized into emc2p once it was
+              clear the loop mechanics (model completion, tool dispatch,
+              iteration cap, usage logging) had nothing to do with that
+              project's own registry schema or session plumbing --
+              matching how headless_session_generalized had already moved
+              the same way.
+    headless_session_generalized:
+        - description: >
+              emc2p.testing.headless_session.HeadlessSession started as a
+              downstream project's own test harness for driving a real MCP
+              client against its MCP server. Generalized into emc2p once
+              mcp_config/allowed_tools/cwd/model/extra_env were pulled out
+              as plain parameters instead of being hardcoded to one
+              project's own tool names/registry backend/domain scenarios
+              -- a downstream project now wraps this in its own subclass or
+              fixture instead of it living there directly.
+    headless_session_fail_deadlock_fixed:
+        - description: >
+              Before HeadlessSession moved into emc2p, its _fail() method
+              read the failing subprocess's stderr (which blocks until
+              EOF) before ever killing that process -- a deadlock, since
+              EOF only arrives once the process exits, and nothing killed
+              it until after that read. Confirmed live: every timeout in
+              the harness silently hung instead of firing until this was
+              fixed (close() the process first, then read stderr from the
+              already-terminated handle).
+    strict_tool_isolation_incident:
+        - description: >
+              _STRIP_BUILTIN_TOOLS_ARGS (--tools "" rather than a
+              --disallowedTools denylist) exists because of one confirmed
+              live incident: a weak model, hitting an MCP tool timeout,
+              used the Glob/Read built-in tools to go read the connected
+              project's own source code, trying to self-diagnose the
+              failure instead of retrying or reporting it -- burning the
+              rest of the run on unrelated exploration instead of the MCP
+              tools actually under test. A denylist would only ever cover
+              tool names caught misused so far; stripping every built-in
+              tool outright removes the option entirely.
+    validate_write_checks_generalized:
+        - description: >
+              emc2p.validate_write's mechanical safety checks
+              (find_component_named_as_nested_entity,
+              find_unknown_component_types) were originally written inside
+              a downstream project before being ported here once it became
+              clear they were pure functions over already-parsed YAML plus
+              a registry's own known component types, with nothing in them
+              actually specific to that project's own domain.
+    registrar_sessions_class_added:
+        - description: >
+              emc2p.mcp_server grew view_registry/view_entity/
+              update_registry (preview/confirm_token flow included)/
+              consolidate_review and the save_dir export sync riding
+              along with update_registry -- all ported in from
+              story-simulator, whose own copies had nothing
+              story-simulator-specific left in them once its richer
+              update_registry (the preview/confirm_token flow and export
+              sync) existed as the only real difference from this
+              module's plainer original. Session state (which Registrar a
+              session is talking to, its optional export dir) lives on a
+              constructed RegistrarSessions instance rather than module-
+              global dicts or reassigning this module's own functions
+              from outside -- an early draft considered a downstream
+              project owning its own copy of that session-state dict
+              instead, rejected once it became clear "one shared set of
+              registrars" was the actual goal, not two dicts kept in
+              sync. `time_provider`/`export_dirname`/
+              `export_history_dirname`/`open_tool_name` are constructor-
+              injected specifically so a caller like story-simulator can
+              plug in its own domain behavior (computing "now" from its
+              own world_clock, its own export directory names, its own
+              session-opening tool's name) without emc2p itself knowing
+              anything about that domain.
+
+              The source key every write in one session must share (or
+              risk hashing the same alias to two different entity_ids
+              from two call sites) was `story_simulator.config.
+              WORLD_FILE_ID = "world"` before this move -- renamed to
+              `SOURCE_KEY = "session"` here, since nothing about it is
+              story-simulator-specific, with no backward-compatible alias
+              kept (nothing was depending on the old name yet).
+              `mount()` takes an `exclude` set of tool names so a caller
+              with its own richer session-opening tool (story-
+              simulator's `start_world`, which also bootstraps Postgres
+              and wires up an export_dir) can skip mounting this
+              module's own `open_registry`, which would otherwise let a
+              client silently swap out that already-open registrar for
+              an unrelated one mid-session.
+
+              Landed together with a real bug fix this move's first
+              draft had initially worked around instead of fixing:
+              Registry._seq_column only consulted the current write
+              batch's own freshly-loaded schema for a component type's
+              time_dimension field, not the accumulated registry's own
+              carried-forward schema -- the same class of bug
+              backfill_time_dimension_fields_using_accumulated_registry_
+              schema_too fixed for time_filled_registry. Fixing
+              _seq_column itself removed the need for any reload-
+              manifest-on-every-write mechanism the class-based design
+              would otherwise have needed.
+    mcp_client_session_added:
+        - description: >
+              Wanted DeepSeek covered by the same live, real-MCP-wire-
+              protocol test class HeadlessSession already gives Claude/
+              Copilot. Investigated DeepSeek's own CLI first
+              (`deepseek-ai/deepseek-harness`, `dsh`) since that's the
+              cheapest fit for HeadlessProvider's existing contract --
+              real repo, MIT-licensed, but a week-old v0.1 developer
+              preview (`dsh --profile headless "<task>"` prints only the
+              final text and exits, no documented streaming/usage
+              reporting, MCP wiring via an unfamiliar YAML "patch layer"
+              rather than a drop-in .mcp.json, maintainers' own
+              compatibility-breaking-changes warning) -- not a good fit
+              for HeadlessProvider's stream-json/usage-reporting contract.
+
+              Considered reusing emc2p.agents.tool_calling_loop as-is
+              (litellm already supports DeepSeek via a
+              "deepseek/deepseek-chat"-style model string, so this would
+              have cost near-zero new code) but rejected it: that path
+              dispatches through REGISTRAR_TOOL_SPECS, a hand-mirrored
+              copy of the tool shapes, never touching the real MCP
+              server -- the same in-process coverage keyed_subagent
+              already has, not what tests/test_human_validated/ exists to
+              check (real JSON-schema generation, real Context wiring,
+              real transport behavior).
+
+              Landed emc2p.testing.mcp_client_session.McpClientSession
+              instead: it owns both halves HeadlessSession splits across
+              two collaborators (a provider CLI's own internal MCP client
+              + agent loop) itself -- mcp.client.stdio/mcp.ClientSession
+              for the real wire protocol, run_tool_calling_loop (via
+              litellm) for the model<->tool-call exchange -- so it works
+              for any litellm-supported model, DeepSeek included, without
+              depending on any provider's own external CLI. Same public
+              shape as HeadlessSession (context manager, send_turn,
+              usage_summary, trace_path) so it drops into a downstream
+              fixture in place of it.
+
+              Confirmed live during development: mcp's stdio transport
+              opens an anyio task group at connect time, and anyio
+              requires a cancel scope to be exited from the same asyncio
+              Task it was entered in -- closing it from a separate
+              `run_coroutine_threadsafe` task (the naive one-task-per-call
+              bridging approach) raised "cancel scope in a different
+              task". Fixed by running the whole session's async lifetime
+              (connect, every queued turn, teardown) inside one single
+              background task, fed through a thread-safe queue instead of
+              one task per public method call.
+
+              run_tool_calling_loop itself gained two small, backward-
+              compatible extensions to support this: `dispatch` may now
+              return an awaitable (awaited if so, so an async MCP
+              `call_tool` needs no sync wrapper), and an optional
+              `on_response` callback fires with each raw litellm response
+              for a caller (like McpClientSession) that needs live
+              per-call usage/cost instead of only the existing best-effort
+              `usage_log_path` file.
+    mcp_client_session_tests_stopped_constructing_litellm_types_directly:
+        - description: >
+              tests/testing/test_mcp_client_session.py originally built its
+              scripted fake model responses out of litellm's own pydantic
+              types (litellm.types.utils.Message/ModelResponse/...) to
+              stay realistic. CI's Python 3.10 job failed on all but 2 of
+              those tests with pydantic.errors.PydanticUserError: `Message`
+              is not fully defined; you should define
+              `ChatCompletionReasoningSummaryTextBlock`, then call
+              `Message.model_rebuild()` -- even though the exact same
+              locked litellm/pydantic/mcp versions passed cleanly under
+              Python 3.11 (confirmed by reproducing the identical uv.lock-
+              pinned environment locally under both interpreters). An
+              explicit `Message.model_rebuild(force=True)` didn't fix it
+              either -- it failed with `PydanticUndefinedAnnotation: name
+              'ChatCompletionReasoningSummaryTextBlock' is not defined`,
+              confirming a genuine Python-3.10-specific gap in how pydantic
+              resolves a nested TypedDict's own string forward-reference
+              (`ChatCompletionReasoningItem.summary: list["ChatCompletion
+              ReasoningSummaryTextBlock"]`, both TypedDicts declared in the
+              same litellm module), not a rebuild-ordering issue this
+              project's own code was doing wrong.
+
+              Fixed by not depending on litellm's exact pydantic types
+              resolving cleanly at all: replaced the fake responses with
+              plain dataclasses (_FakeMessage/_FakeToolCall/...)
+              implementing only the duck-typed contract
+              run_tool_calling_loop and McpClientSession actually read
+              (`.choices[0].message.content`/`.tool_calls`,
+              `message.model_dump(exclude_none=True)`, `.usage.
+              prompt_tokens`/`.completion_tokens`). More robust than the
+              original approach regardless of this specific bug -- these
+              tests exist to check McpClientSession's own logic (real MCP
+              round trip, usage accumulation, trace writing, timeout
+              handling), not whether litellm's own response objects
+              construct correctly, which is litellm's own test suite's
+              job. Verified by reproducing CI's exact failure locally
+              (cloning the repo fresh and running `uv sync --all-extras
+              --python 3.10`) before and after the fix.
+    registrar_sessions_dispatch_added:
+        - description: >
+              story_simulator/keyed_subagent.py's own `_dispatch_tool_call`
+              (routing a model's `(name, arguments)` tool call to the
+              matching RegistrarSessions plain-session method) had nothing
+              story-simulator-specific left in it once registry read/write
+              itself moved to RegistrarSessions -- the same generalization
+              reasoning that already pulled REGISTRAR_TOOL_SPECS/
+              run_tool_calling_loop into emc2p. Added as
+              `RegistrarSessions.dispatch(session, name, arguments)`.
+
+              Considered bare `getattr(self, name)(session, **arguments)`
+              with no allowlist -- it works today, since REGISTRAR_TOOL_
+              SPECS's own JSON-schema argument names already match these
+              methods' Python parameter names exactly, but rejected it:
+              `name` here is a model's own output, and this instance also
+              carries methods that must stay unreachable that way
+              (`get_registrar`, `open`, `_merge_and_sync`, ...). Kept an
+              explicit `_DISPATCHABLE_METHODS` allowlist checked before
+              the `getattr` call, so only the four intended plain-session
+              methods are ever reachable by name, regardless of what else
+              exists on the instance.

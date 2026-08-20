@@ -1,15 +1,16 @@
 """Generic infrastructure for driving a real MCP server through a real MCP
-client -- `HeadlessSession` spawns a provider CLI as a subprocess against a
-caller-supplied `.mcp.json`, exactly the way a client connecting to that
-server would.
+client -- `HeadlessSession` spawns a provider CLI as a subprocess.
 
-Extracted from story-simulator's own test harness: nothing here knows about
-any downstream project's MCP tool names, registry backend, or domain
-scenarios. A caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`,
-and any `extra_env` its own MCP server(s) need (e.g. a database URL derived
-from a save/workdir the caller picked) -- see story-simulator's
-tests/test_human_validated.py for a downstream subclass that fixes these to
-one project's own defaults.
+Spawns a provider CLI (e.g. `claude -p`) as a subprocess against a
+caller-supplied `.mcp.json`, exactly the way a client connecting to that
+server would. Nothing here knows about any downstream project's MCP tool
+names, registry backend, or domain scenarios (see docs/manifest/
+history.yaml: project_history.headless_session_generalized for where this
+started). A caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`,
+and any `extra_env` its own MCP server(s) need (e.g. a database URL
+derived from a save/workdir the caller picked) -- a downstream project
+typically wraps this in its own subclass or fixture that fixes these to
+its own defaults.
 """
 
 from __future__ import annotations
@@ -26,19 +27,8 @@ from typing import Any
 
 import pytest
 
-# --tools "" strips every built-in Claude Code tool (Bash, Read, Write,
-# Edit, Glob, Grep, WebFetch, WebSearch, Task, ...), leaving only the
-# caller's own `allowed_tools` -- not just denied via --disallowedTools,
-# which still leaves every other built-in tool available. Confirmed
-# happening in practice (story-simulator, #-numbered issue in that repo's
-# own history): a weak model, hitting an MCP tool timeout, used Glob+Read
-# to go read the connected project's own source code trying to
-# self-diagnose the failure instead of retrying or reporting it -- burning
-# the rest of the run on unrelated exploration. A model being tested for
-# how it uses one project's MCP tools has no legitimate reason to reach for
-# unrelated built-in tools; removing the option outright is more robust
-# than a denylist of specific tool names, which only covers what's been
-# caught happening so far.
+# --tools "" strips every built-in tool outright, not a --disallowedTools
+# denylist.
 _STRIP_BUILTIN_TOOLS_ARGS = ["--tools", ""]
 
 
@@ -137,18 +127,21 @@ class ClaudeHeadlessProvider(HeadlessProvider):
         return True
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]:
-        # Dropping every CLAUDE*/AI_AGENT env var (not just adding
-        # extra_env on top) is load-bearing, not cosmetic -- confirmed
-        # live: run from inside a Claude Code Cloud session, this
-        # process's own environment carries CLAUDE_CODE_SESSION_ID (plus
-        # its messaging socket/token, oauth fd, container id, ...) for
-        # *this* session. Passed through via a plain `{**os.environ, ...}`,
-        # the nested `claude -p` subprocess picked that session ID up and
-        # attached to this exact outer session's own transcript/state
-        # instead of starting a fresh, isolated one. A local terminal
-        # invocation never had these vars set in the first place, which is
-        # presumably why this went unnoticed until first run from a Cloud
-        # session.
+        """Dropping every CLAUDE*/AI_AGENT env var is load-bearing, not
+        cosmetic.
+
+        A nested `claude -p` can otherwise inherit and attach to this
+        outer session. Confirmed live: run from inside a Claude Code Cloud session, this
+        process's own environment carries CLAUDE_CODE_SESSION_ID (plus its
+        messaging socket/token, oauth fd, container id, ...) for *this*
+        session. Passed through via a plain `{**os.environ, ...}`, the
+        nested `claude -p` subprocess picked that session ID up and
+        attached to this exact outer session's own transcript/state
+        instead of starting a fresh, isolated one. A local terminal
+        invocation never had these vars set in the first place, which is
+        presumably why this went unnoticed until first run from a Cloud
+        session.
+        """
         return {k: v for k, v in env.items() if not k.startswith("CLAUDE") and k != "AI_AGENT"}
 
     def build_command(
@@ -208,8 +201,8 @@ class CopilotHeadlessProvider(HeadlessProvider):
         return str(self.options.get("executable", "copilot"))
 
     def filter_env(self, env: dict[str, str]) -> dict[str, str]:
-        # Prevent nested sessions from accidentally inheriting current
-        # Copilot/agent runtime session wiring.
+        """Prevent nested sessions from accidentally inheriting current
+        Copilot/agent runtime session wiring."""
         blocked_prefixes = ("COPILOT_", "GITHUB_COPILOT_", "AI_AGENT")
         return {k: v for k, v in env.items() if not any(k.startswith(p) for p in blocked_prefixes)}
 
@@ -344,7 +337,9 @@ class HeadlessSession:
         turn_timeout: float = 240,
         session_timeout: float = 120,
     ):
-        """
+        """mcp_config/allowed_tools/cwd/model describe the MCP server under
+        test; the rest tune how the run behaves.
+
         Args:
             mcp_config: Path (absolute, or relative to `cwd`) to the
                 `.mcp.json` describing the MCP server(s) under test.
@@ -400,11 +395,7 @@ class HeadlessSession:
         trace_dir.mkdir(parents=True, exist_ok=True)
         self.trace_path = trace_dir / f"{time.strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}.jsonl"
         self._trace_file = None
-        # Accumulated across every send_turn call this session makes (a
-        # session is usually several turns) -- each turn's "result" event
-        # already reports its own cost/usage (see send_turn), this just
-        # sums them so a caller can read one total for the whole session
-        # instead of re-deriving it from the trace file after the fact.
+        # Running totals across every send_turn call this session makes.
         self.total_cost_usd: float = 0.0
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
@@ -517,13 +508,17 @@ class HeadlessSession:
         }
 
     def _fail(self, message: str) -> None:
-        # close() first, not stderr.read() first: read() blocks until EOF,
-        # which only arrives once the subprocess exits -- but the process
-        # is still alive at this point (that's the whole reason _fail was
-        # called), and nothing kills it until close() runs. Reading before
-        # closing deadlocks forever, silently swallowing every timeout this
-        # method exists to enforce. close() sets self.proc to None, so the
-        # proc handle is captured first for the stderr read afterward.
+        """close() before reading stderr, not after -- read() blocks until
+        EOF, which only arrives once close() has killed the process.
+
+        close() first, not stderr.read() first: read() blocks until EOF,
+        which only arrives once the subprocess exits -- but the process is
+        still alive at this point (that's the whole reason _fail was
+        called), and nothing kills it until close() runs. Reading before
+        closing deadlocks forever, silently swallowing every timeout this
+        method exists to enforce. close() sets self.proc to None, so the
+        proc handle is captured first for the stderr read afterward.
+        """
         proc = self.proc
         self.close()
         stderr = proc.stderr.read() if proc and proc.stderr else ""
@@ -534,11 +529,8 @@ class HeadlessSession:
         if self._trace_file is not None:
             self._trace_file.close()
             self._trace_file = None
-            # Persisted next to the trace unconditionally (not just when a
-            # caller bothers to read usage_summary() itself) so every live
-            # test's spend is recoverable after the fact, matching how the
-            # raw trace itself is already kept regardless of whether a
-            # given test happens to fail.
+            # Kept even if the caller never reads usage_summary() --
+            # matches how the raw trace is kept regardless of pass/fail.
             usage_path = self.trace_path.with_suffix(".usage.json")
             usage_path.write_text(json.dumps(self.usage_summary(), indent=2))
         if self.proc is None:

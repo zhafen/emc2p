@@ -26,9 +26,8 @@ def register_dataflow_package(name: str) -> None:
 
 
 def resolve_dataflow(dataflow: ModuleType | str) -> ModuleType:
-    """Resolve a dataflow module, or a dotted name relative to a registered
-    dataflow base package (``emc2p.dataflows``, plus any added via
-    ``register_dataflow_package``).
+    """Resolve a dataflow module, or a dotted name relative to any
+    registered dataflow base package (see ``register_dataflow_package``).
 
     Args:
         dataflow: A dataflow module, or a dotted path such as

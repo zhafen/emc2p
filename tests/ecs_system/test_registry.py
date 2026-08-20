@@ -144,9 +144,11 @@ class TestRegistryViewAliases:
 
     @pytest.fixture
     def sample_registry(self):
-        """Same shape as TestRegistryView's fixture of the same name --
-        duplicated locally since pytest doesn't share method-scoped
-        fixtures across classes."""
+        """Same shape as TestRegistryView's fixture of the same name.
+
+        Duplicated locally since pytest doesn't share method-scoped
+        fixtures across classes.
+        """
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
@@ -172,8 +174,11 @@ class TestRegistryViewAliases:
     @pytest.fixture
     def registry_with_ambiguous_alias(self):
         """Two entities whose paths both contain "shared", but neither is
-        aliased or hashed to exactly "shared" -- resolving "shared" can only
-        succeed via the substring fallback, and matches both."""
+        aliased or hashed to exactly "shared".
+
+        Resolving "shared" can only succeed via the substring fallback,
+        and matches both.
+        """
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
@@ -341,10 +346,7 @@ class TestRegistryViewCurrent:
             "status_reading",
             {"entity_id": ["e1", "e1", "e2"],
              # e1's two rows deliberately differ in component_index: SCD
-             # history commonly comes from separate writes that each compute
-             # their own component_index from scratch (e.g. independent
-             # merges), so it isn't a stable key to group by — only
-             # entity_id is guaranteed unique per point in time.
+             # history commonly comes from separate writes each computing it fresh.
              "component_index": [0, 1, 0],
              "modifier": pd.array([None, None, None], dtype=pd.StringDtype()),
              "as_of": ["2024-01-01", "2024-06-01", "2024-03-01"],
@@ -432,6 +434,25 @@ class TestRegistryViewCurrent:
         e1_row = df[df["entity_id"] == "e1"].iloc[0]
         assert e1_row["status_reading.status"] == "fresh"
 
+    def test_seq_column_falls_back_to_self_when_other_lacks_schema(self, scd_registry):
+        """A later merge whose own batch doesn't redeclare status_reading's
+        schema (e.g. a per-turn write that only reloads its own incremental
+        data, not the full manifest) must still get a `_seq_{field}` column
+        -- falling back to `self`'s (the accumulated registry's) own
+        already-known schema, the same fallback time_filled_registry uses
+        for backfilling values."""
+        conn = ibis.duckdb.connect()
+        conn.create_table("entity_id", {"value": ["e3"], "alias": ["e3"], "path": ["test:e3"],
+                                         "entity_key": ["e3"], "filepath": ["test"]})
+        conn.create_table("status_reading", {"entity_id": ["e3"], "component_index": [0],
+                                              "modifier": pd.array([None], dtype=pd.StringDtype()),
+                                              "as_of": ["2024-09-01"], "status": ["new"]})
+        other = Registry(conn, {
+            "entity_id": conn.table("entity_id"),
+            "status_reading": conn.table("status_reading"),
+        })
+        assert scd_registry._seq_column("status_reading", other) == "_seq_as_of"
+
     def test_no_seq_column_falls_back_gracefully(self, scd_registry):
         """A tie with no `_seq_{field}` column at all still resolves to exactly one row."""
         conn = scd_registry._con
@@ -474,6 +495,59 @@ class TestRegistryViewCurrent:
         })
         df = registry.view_current("description").execute()
         assert len(df) == 2
+
+
+class TestGetCurrentValue:
+    """Tests for get_current_value(), the single-value convenience over view_current()."""
+
+    @pytest.fixture
+    def scd_registry(self):
+        """A registry with a "status_reading" type whose "as_of" field is time_dimension."""
+        conn = ibis.duckdb.connect()
+        conn.create_table(
+            "entity_id",
+            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+             "path": ["test:status_reading", "test:e1", "test:e2"],
+             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+        )
+        conn.create_table(
+            "field",
+            {"entity_id": ["def1", "def1"], "value": ["as_of", "status"],
+             "time_dimension": [True, False]},
+        )
+        conn.create_table(
+            "status_reading",
+            {"entity_id": ["e1", "e1", "e2"],
+             "component_index": [0, 1, 0],
+             "modifier": pd.array([None, None, None], dtype=pd.StringDtype()),
+             "as_of": ["2024-01-01", "2024-06-01", "2024-03-01"],
+             "status": ["open", "closed", "open"]},
+        )
+        components = {
+            "entity_id": conn.table("entity_id"),
+            "field": conn.table("field"),
+            "status_reading": conn.table("status_reading"),
+        }
+        return Registry(conn, components)
+
+    def test_returns_the_current_value(self, scd_registry):
+        assert scd_registry.get_current_value("status_reading", "status", "e1") == "closed"
+
+    def test_defaults_field_to_value(self, scd_registry):
+        assert scd_registry.get_current_value("entity_id", alias="e1") == "e1"
+
+    def test_nonexistent_component_type_returns_none(self, scd_registry):
+        assert scd_registry.get_current_value("nonexistent", alias="e1") is None
+
+    def test_alias_matching_nothing_returns_none(self, scd_registry):
+        assert scd_registry.get_current_value("status_reading", "status", "no_such_alias") is None
+
+    def test_declared_but_dataless_component_type_returns_none(self, scd_registry):
+        schema = ibis.schema(
+            {"entity_id": "string", "component_index": "int64", "modifier": "string", "value": "string"}
+        )
+        scd_registry.declare_schema("empty_type", schema)
+        assert scd_registry.get_current_value("empty_type", alias="e1") is None
 
 
 class TestRegistryDatabaseRoundTrip:
@@ -532,8 +606,7 @@ class TestRegistryDeclareSchema:
             {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"], "entity_key": ["e1"], "filepath": ["test"]},
         )
         # An empty (but correctly-columned) "field" table, so
-        # _time_dimension_field -- which view_current always consults --
-        # finds no time_dimension field rather than a missing "field" key.
+        # _time_dimension_field finds no time_dimension field, not a missing key.
         conn.create_table(
             "field",
             pd.DataFrame(columns=["entity_id", "value", "time_dimension"]).astype(
@@ -569,8 +642,7 @@ class TestRegistryDeclareSchema:
 
     def test_known_component_types_includes_declared_but_dataless_type(self, sample_registry):
         """component_types alone can't distinguish "this type doesn't exist"
-        from "this type exists but nobody's used it yet" -- known_component_types
-        can."""
+        from "this type exists but nobody's used it yet" -- known_component_types can."""
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
         sample_registry.declare_schema("position", schema)
         assert "position" not in sample_registry.component_types
@@ -671,10 +743,12 @@ class TestRegistryGetEntityId:
         assert registry.get_entity_id("nonexistent") is None
 
     def test_container_alias_resolves_despite_being_path_prefix_of_children(self, registry):
-        """A container's own alias ("feeding_system") is a substring of its
-        children's paths too ("feeding_system.feed_cats", ...), but the
-        exact-alias match must still resolve it unambiguously rather than
-        reporting it as ambiguous with its own descendants."""
+        """A container's own alias is a substring of its children's paths
+        too ("feeding_system" vs "feeding_system.feed_cats", ...).
+
+        The exact-alias match must still resolve it unambiguously rather
+        than reporting it as ambiguous with its own descendants.
+        """
         assert registry.get_entity_id("feeding_system") == "bbb222bbb222"
 
     def test_returns_none_when_substring_matches_multiple_with_no_exact_alias_hit(self, registry):
@@ -723,8 +797,10 @@ class TestRegistryViewEntityDf:
 
     def test_resolves_container_alias_despite_being_path_prefix_of_child(self, registry):
         """Regression test: view_entity_df used to match `entity_id.alias`
-        by hand, which happened to disambiguate a container from its
-        children too; delegating to get_entity_id must preserve that."""
+        by hand, which happened to disambiguate a container from its children too.
+
+        Delegating to get_entity_id must preserve that.
+        """
         result = registry.view_entity_df("feeding_system")
         assert result["description"].iloc[0]["description.value"] == "The feeding system."
 

@@ -102,10 +102,8 @@ def same_as_resolved_registry(registry: Registry, existing_registry: Registry = 
             continue
         df = df.copy()
         df["entity_id"] = df["entity_id"].map(_rebase)
-        # Pass the original schema explicitly: a column that's entirely NULL
-        # in this batch (e.g. a time_dimension field not yet backfilled) has
-        # no non-null values for pandas/ibis to infer a dtype from, and
-        # DuckDB rejects creating a table with an untyped NULL column.
+        # Schema passed explicitly, not inferred: an all-NULL column here
+        # has no dtype for pandas/ibis to infer, which DuckDB rejects.
         updated[comp_type] = ibis.memtable(df, schema=table.schema())
 
     entity_df = new_entity_df[~new_entity_df["value"].isin(rebase_map)]

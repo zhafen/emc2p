@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "emc2p": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "emc2p-mcp"],
+      "env": {}
+    }
+  }
+}

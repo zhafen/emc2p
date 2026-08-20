@@ -308,8 +308,7 @@ def _validate_component(ctype: str, table: ir.Table, schema: dict) -> tuple[ir.T
         t = t.mutate(**{fname: col.fill_null(lit)})
 
     # Build a pandera schema with nullable and isin constraints, then validate lazily.
-    # A single validate(lazy=True) call collects all constraint violations at once
-    # rather than raising on the first failure.
+    # A single validate(lazy=True) call collects all violations at once.
     pa_columns = {}
     for fname, fschema in schema.items():
         if fname not in existing:
@@ -438,9 +437,10 @@ def field_validation_results(
 
 def _empty_component_schema(fields: dict) -> ibis.Schema:
     """Build the schema an empty table of a declared-but-dataless component
-    type would have: its own typed fields if it has any, or the generic
-    ``value`` string column a fieldless (tag) component type is given by
-    the loader instead.
+    type would have.
+
+    Its own typed fields if it has any, or the generic ``value`` string
+    column a fieldless (tag) component type is given by the loader instead.
     """
     cols = {"entity_id": "string", "component_index": "int64", "modifier": "string"}
     if fields:
@@ -475,12 +475,14 @@ def validation_results(
     components: dict, validated_field: ir.Table, entity_id: ir.Table,
     existing_registry: Registry = None,
 ) -> tuple[dict, ir.Table, dict]:
-    """Use the schemas defined by the ((field)) component to validate and coerce
-    the data in each component, including component types that used to be
-    excluded as "infrastructure" (entity_id, parent, component_type,
-    invalid_field, schema) — a user-authored manifest can add invalid
-    records to those tables too, so they need the same validation/coercion
-    pass as every user-defined component type.
+    """Use the schemas defined by the ((field)) component to validate and
+    coerce the data in each component.
+
+    Includes component types that used to be excluded as "infrastructure"
+    (entity_id, parent, component_type, invalid_field, schema) — a
+    user-authored manifest can add invalid records to those tables too, so
+    they need the same validation/coercion pass as every user-defined
+    component type.
 
     Materialise only the schema-defining rows (O(fields) records per component
     type), then delegate to ``_validate_component`` for the actual coercion and
@@ -532,9 +534,7 @@ def validation_results(
     existing_field = existing_registry.get("field") if existing_registry is not None else None
     existing_entity_id = existing_registry.get("entity_id") if existing_registry is not None else None
     # Built for every declared type, not just ones with data this batch: a
-    # type can be fully declared (its "field" definitions loaded) with zero
-    # rows of its own yet, and declared_schemas below still needs its real,
-    # typed fields rather than falling back to a generic "value" column.
+    # type can be fully declared with zero rows of its own yet.
     component_schemas = _build_component_schemas(
         set(components.keys()) | declared_types, validated_field, entity_id, existing_field, existing_entity_id
     )

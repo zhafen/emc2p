@@ -5,8 +5,10 @@ import yaml
 
 def _find_malformed_entities(entities: dict) -> list[str]:
     """Scan a parsed entity-first dict for components given as a bare YAML
-    mapping instead of the required list form (`alias:\\n    component:\\n
-    value: x` instead of `alias:\\n    - component:\\n        value: x`).
+    mapping instead of the required list form.
+
+    E.g. `alias:\\n    component:\\n        value: x` instead of
+    `alias:\\n    - component:\\n        value: x`.
 
     Parameters
     ----------
@@ -21,22 +23,12 @@ def _find_malformed_entities(entities: dict) -> list[str]:
         if none found.
     """
     # Downstream flattening treats any dict value as a nested-entity
-    # container rather than raising on this mistake, so it silently
-    # produces zero rows instead of merging -- this is the only thing
-    # that catches it.
+    # container rather than raising on this mistake.
     malformed: list[str] = []
 
     def check(path: str, value) -> None:
         # A dict value is ambiguous on its own: legitimate nested-entity
-        # container, or this mistake. Distinguished by recursing only
-        # while every value at this level is itself a list, dict, or
-        # null -- a bare non-null scalar means this level was meant as a
-        # component list. Null counts as valid too: a bare `key:` with
-        # nothing after the colon is a real, componentless placeholder
-        # entity (e.g. `iacs_manifest/iacs.yaml`'s
-        # `required_functionality:` block) -- treating it as malformed
-        # broke real data the first time this shipped. `"data"` is
-        # exempt everywhere, matching EC's own freeform-notes convention.
+        # container, or this mistake -- distinguished below.
         if value is None or isinstance(value, list):
             return
         if isinstance(value, dict) and value and all(
