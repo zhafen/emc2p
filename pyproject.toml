@@ -51,5 +51,5 @@ emc2p = ["builtins/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "live: tests that call the real Anthropic API (require ANTHROPIC_API_KEY, cost money, excluded from CI)",
+    "live: tests that call a real model API (via a real CLI or litellm -- cost money, excluded from CI)",
 ]

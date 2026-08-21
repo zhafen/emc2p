@@ -63,8 +63,19 @@ def write_time(registrar: "Registrar", component_type: str, alias: str) -> float
     it to (e.g. stamped with a particular event's own end_time), not
     guessed independent of it -- regardless of how many actual
     conversation turns the model took to get there.
+
+    Takes `df[...].max()`, not `.iloc[-1]` -- confirmed live (story-
+    simulator's test_parking_split_across_two_events_per_car, over a real
+    Postgres-backed registry) that `view_df`'s row order doesn't reliably
+    match write order: `Registry._view` (what `view_df` calls) never
+    sorts its output, so two accumulated rows for the same alias can come
+    back in either order depending on the backend's own query plan, even
+    though `view_current`/`get_current_value` (an explicit `ORDER BY
+    time_dimension_field DESC`, see `_current_table`) still resolves the
+    right one. `.iloc[-1]` silently trusted that unspecified order to
+    also be write order, which isn't guaranteed by anything `_view` does.
     """
     df = registrar.view_df(component_type, aliases=alias)
     if df.empty:
         return None
-    return float(df.iloc[-1][f"{component_type}.time"])
+    return float(df[f"{component_type}.time"].max())
