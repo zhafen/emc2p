@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_human_validated.helpers import HeadlessSession, _load_registrar
+from tests.test_human_validated.helpers import McpClientSession, _load_registrar
 from emc2p.testing.registry_checks import unexpected_components
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -45,8 +45,8 @@ def test_write_accuracy_given_assignment(tmp_path):
     """
     db_path = tmp_path / "test.duckdb"
 
-    with HeadlessSession() as session:
-        print(f"HeadlessSession trace: {session.trace_path}")
+    with McpClientSession() as session:
+        print(f"McpClientSession trace: {session.trace_path}")
         narration = session.send_turn(
             _WRITE_GIVEN_INSTRUCTION.format(
                 database_url=f"duckdb:///{db_path}", manifest_dir=str(STATUS_BOARD_SCENARIO_DIR)
