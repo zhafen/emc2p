@@ -1,16 +1,16 @@
 """Regression coverage for `emc2p.testing.registry_checks`.
 
 Reproduces, mechanically and deterministically (no LLM, no live model
-calls, DuckDB in-memory), the exact read-path bug story-simulator's own
-`test_parking_split_across_two_events_per_car` live test tripped over: a
-time_dimension'd component field written twice for the same entity, at
-two different `time` values, whose `view_df`/`view` row order doesn't
-match write order. `get_current_value`/`view_current` still resolve the
-right one (they sort explicitly, see `Registry._current_table`); the old
-`write_time` didn't, and returned whichever row happened to land last
-positionally -- confirmed live to be the *earlier*-time row against a
-real Postgres-backed registry, the same backend story-simulator's own
-live tests use.
+calls, DuckDB in-memory), a real read-path bug confirmed live by a
+downstream project's own live test: a time_dimension'd component field
+written twice for the same entity, at two different `time` values, whose
+`view_df`/`view` row order doesn't match write order. `get_current_value`/
+`view_current` still resolve the right one (they sort explicitly, see
+`Registry._current_table`); the old `write_time` didn't, and returned
+whichever row happened to land last positionally -- confirmed live to be
+the *earlier*-time row against a real Postgres-backed registry (see
+docs/manifest/history.yaml: project_history.write_time_max_not_last_row
+for the live-test failure this reproduces).
 """
 
 from emc2p.registrar import Registrar
@@ -34,14 +34,13 @@ def _force_physical_row_order_by_time_desc(registrar: Registrar, component_type:
     `Registry._view` (what `view_df`/`view` call) never sorts its own
     output -- confirmed live that a real Postgres-backed registry can
     return two rows for the same alias in either order, regardless of
-    which was written first (see `write_time`'s own docstring, and
-    docs/manifest/history.yaml in story-simulator for the live-test
-    failure this reproduces). This helper constructs that exact
-    "physical order disagrees with time order" state directly, rather
-    than depending on a specific backend's own query-planner quirks (which
-    aren't the same across backends, and aren't the point under test) --
-    the point under test is `write_time`'s own read, not any one backend's
-    scrambling behavior.
+    which was written first (see `write_time`'s own docstring and this
+    module's own docstring for the live-test failure this reproduces).
+    This helper constructs that exact "physical order disagrees with time
+    order" state directly, rather than depending on a specific backend's
+    own query-planner quirks (which aren't the same across backends, and
+    aren't the point under test) -- the point under test is `write_time`'s
+    own read, not any one backend's scrambling behavior.
     """
     con = registrar.registry._con
     con.raw_sql(
@@ -57,8 +56,8 @@ def test_write_time_survives_out_of_order_rows():
     whichever row a plain, unsorted `view_df` happens to return last.
     """
     r = Registrar()
-    _write(r, "widget", "restaurant", 1020)
-    _write(r, "widget", "parking_spot_1", 1030)
+    _write(r, "widget", "earlier_value", 1020)
+    _write(r, "widget", "later_value", 1030)
     _force_physical_row_order_by_time_desc(r, "description")
 
     # Sanity check: the forced reorder actually did put the earlier-time
@@ -70,7 +69,7 @@ def test_write_time_survives_out_of_order_rows():
         f"this test needs it to, got {list(raw['description.time'])}"
     )
 
-    assert r.get_current_value("description", "value", "widget") == "parking_spot_1", (
+    assert r.get_current_value("description", "value", "widget") == "later_value", (
         "view_current's explicit max(time) resolution should be unaffected by row order"
     )
     assert write_time(r, "description", "widget") == 1030

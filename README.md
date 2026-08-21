@@ -16,6 +16,17 @@ on emc2p and adds its own component definitions and dataflows on top.
 
 - Use `uv` for Python package management.
 - Run tests with `uv run pytest`.
+- Enable the repo's git hooks (checked into `.githooks/`, not the default
+  `.git/hooks/`, so this is a one-time opt-in per clone):
+  ```
+  git config core.hooksPath .githooks
+  ```
+  The pre-commit hook runs `scripts/check-no-downstream-mentions.sh`,
+  which fails a commit that names a specific downstream project anywhere
+  outside `docs/manifest/history.yaml` -- emc2p is meant to stay usable
+  by any downstream project, so its own code/tests/docs shouldn't name
+  one (see that script's own comments for which name it currently checks
+  for).
 
 ### Code style: comments and docstrings
 

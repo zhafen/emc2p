@@ -1,12 +1,12 @@
 """MCP server exposing a Registrar's read/write tools directly.
 
 Generic: no downstream project's own domain concepts (no event/simulation
-loop, no character/NPC module -- compare `story_simulator.mcp_server`,
-which mounts these same tools alongside its own `start_world`/
-`advance_simulation` event loop). Lets a connected model exercise real
-Registrar read/write accuracy over the actual MCP wire protocol, not just
-in-process tool dispatch (see `emc2p.agents.tool_calling_loop` for the
-in-process alternative `keyed_subagent`-style responders use instead).
+loop, no character/NPC module -- a downstream project mounting its own
+event loop alongside these tools would do so via its own FastMCP server,
+see below). Lets a connected model exercise real Registrar read/write
+accuracy over the actual MCP wire protocol, not just in-process tool
+dispatch (see `emc2p.agents.tool_calling_loop` for the in-process
+alternative `keyed_subagent`-style responders use instead).
 
 All session state (which Registrar a session is talking to, its optional
 export directory) lives on a `RegistrarSessions` instance, not module
@@ -16,9 +16,8 @@ export directory names) constructs its own instance with that behavior
 injected, rather than reassigning this module's own functions/dicts from
 outside. `server`/the module-level tool functions below are this module's
 own default instance, for standalone use; a caller mounting these tools
-onto its own FastMCP server (as `story_simulator.mcp_server` does)
-constructs a separate `RegistrarSessions` instead and mounts that
-instance's own bound methods.
+onto its own FastMCP server instead constructs a separate
+`RegistrarSessions` and mounts that instance's own bound methods.
 """
 
 from __future__ import annotations
@@ -64,17 +63,17 @@ class RegistrarSessions:
     Also owns the pieces of behavior a caller can configure without
     reassigning this module's own internals: `time_provider` (what "now"
     means, for backfilling time_dimension fields -- generic emc2p has no
-    notion of this; a caller like story-simulator computes it from its own
-    world state) and the export directory names `update_registry` writes
-    to when a session has one set.
+    notion of this; a downstream caller computes it from its own world
+    state) and the export directory names `update_registry` writes to
+    when a session has one set.
 
     `open_tool_name` names the tool a "no registry open yet" error points
     at -- `open_registry` (this class's own, the default) unless a caller
     excludes it from its own `mount()` call in favor of a richer
-    session-opening tool of its own (story-simulator's `start_world`,
-    which also bootstraps Postgres and seeds/tracks an export_dir) --
-    that caller passes its own tool's name here so the error a client
-    actually sees names a tool that's really mounted on that server.
+    session-opening tool of its own (one that also bootstraps its own
+    database and seeds/tracks an export_dir) -- that caller passes its
+    own tool's name here so the error a client actually sees names a tool
+    that's really mounted on that server.
     """
 
     def __init__(
@@ -106,9 +105,9 @@ class RegistrarSessions:
 
         For a caller that does its own richer loading (scenario seeding,
         resuming a save, ...) and just needs to hand the result to this
-        instance -- e.g. story-simulator's own `start_world`, whose
-        load/seed logic doesn't match `open`'s simpler "merge manifest_dir
-        once if empty" behavior.
+        instance -- e.g. a downstream project's own session-opening tool,
+        whose load/seed logic doesn't match `open`'s simpler "merge
+        manifest_dir once if empty" behavior.
         """
         self._registrars[session] = registrar
         if export_dir:
@@ -308,11 +307,10 @@ class RegistrarSessions:
         """Register this instance's tools onto `server`.
 
         `exclude` skips named tools entirely -- e.g. a caller with its own
-        session-opening tool (story-simulator's `start_world`, which also
-        bootstraps Postgres and wires up an export_dir) passes
-        `{"open_registry"}` so a client can't silently swap out that
-        already-open registrar for an unrelated one via this generic tool
-        instead.
+        session-opening tool (one that also bootstraps its own database
+        and wires up an export_dir) passes `{"open_registry"}` so a
+        client can't silently swap out that already-open registrar for an
+        unrelated one via this generic tool instead.
         """
         exclude = exclude or set()
 

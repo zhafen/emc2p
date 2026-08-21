@@ -247,3 +247,29 @@ project_history:
               the `getattr` call, so only the four intended plain-session
               methods are ever reachable by name, regardless of what else
               exists on the instance.
+    write_time_max_not_last_row:
+        - description: >
+              `emc2p.testing.registry_checks.write_time` (a live-test
+              helper reading back "when was this last written" for a
+              time_dimension'd field) read `registrar.view_df(...).iloc
+              [-1]`, trusting that a plain, unsorted `view()`/`view_df()`
+              call happens to return rows in write order. It doesn't:
+              `Registry._view` has no `ORDER BY` at all, unlike
+              `view_current`/`get_current_value` (an explicit `ORDER BY
+              time_dimension_field DESC`, see `_current_table`).
+
+              Confirmed live by a downstream project's own live test,
+              against a real Postgres-backed registry: two writes to the
+              same entity's field, at times 1020 then 1030, came back
+              from `view_df` with the *earlier*-time row last --
+              `write_time` reported 1020 instead of the actual latest
+              write, 1030, even though `get_current_value` already had
+              the correct value. Fixed by resolving `df[...].max()`
+              instead of `.iloc[-1]`, matching `_current_table`'s own
+              semantics.
+              Regression test added at tests/testing/
+              test_registry_checks.py, reproducing the same "physical row
+              order disagrees with time order" state deterministically
+              (DuckDB, no live model) via a direct table reshuffle, rather
+              than depending on any one backend's own query-planner
+              quirks to reproduce it incidentally.
