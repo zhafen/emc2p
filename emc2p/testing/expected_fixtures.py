@@ -177,6 +177,15 @@ def assert_subset(var_name: str, expected_value, actual_value) -> None:
                 assert_df_rows_subset(exp_val, act_val, context=f"{var_name}[{key}]")
             elif isinstance(exp_val, dict) and isinstance(act_val, dict):
                 assert_manifest_subset(exp_val, act_val, context=f"{var_name}[{key!r}]")
+            # A plain scalar leaf (e.g. a {alias: expected_value} map, as
+            # opposed to the list-of-tuples/nested-dict shapes handled
+            # above) -- checked for exact equality rather than silently
+            # skipped, since "key present" alone wouldn't actually catch a
+            # wrong recorded value.
+            elif exp_val is None or isinstance(exp_val, (str, int, float, bool)):
+                assert exp_val == act_val, (
+                    f"'{var_name}[{key!r}]': expected {exp_val!r}, got {act_val!r}"
+                )
 
 
 def assert_not_subset(var_name: str, expected_value, actual_value) -> None:
