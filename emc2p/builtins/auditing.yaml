@@ -57,6 +57,30 @@ solution:
               description: The entity that this solution targets (what is being solved).
               type: entity_ref
 
+required_by:
+    - description: >
+          The inverse of ((solution)): marks the ((required_by.source)) as
+          something the ((required_by)).value entity needs in order to
+          function, rather than something it solves. Lets a solution's own
+          requirements (and those requirements' own candidate solutions, and
+          so on) be expressed purely through relations -- ((solution)) one
+          way, ((required_by)) the other -- without tagging any entity as
+          categorically "a requirement" or "a solution" the way
+          ((requirement))/the ``- solution`` tag convention does elsewhere.
+
+          Named ``required_by`` rather than a literal "requirement of" (an
+          "X of" key is parsed as component type X with modifier "of" --
+          see load_manifest.py's ``_ctf`` splitting) because that would
+          collide with the already-existing rating-typed ((requirement))
+          component: both would resolve to the same registered type, and a
+          plain entity_ref value would fail to coerce against
+          ((requirement))'s ``value`` field (typed ``rating``).
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity that requires this entity to function.
+              type: entity_ref
+
 consideration:
     - description: A pro or con used to make a decision.
     - field:
@@ -75,8 +99,16 @@ consideration:
 consideration_rating:
     - field:
           value:
-              description: Key for the consideration.
+              description: >
+                  Key for the consideration this rates. Optional: leave
+                  null for a plain, uncategorized pro/con -- just "is this
+                  strong or weak" -- with no shared axis to weigh it
+                  against others by. A null value's effective weight
+                  defaults to 1 (the same as an explicit consideration
+                  with weight 1) rather than 0, so an uncategorized rating
+                  still counts instead of vanishing from a weighted total.
               type: str
+              nullable: true
           note:
               description: Notes on the rating.
               type: str
