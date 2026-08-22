@@ -9,6 +9,10 @@ file_info:
           story-simulator.yaml) get a real, validated schema for them
           instead of relying on emc2p's schema-optional duck-typing.
 
+          Named for what these types are for (auditing/scoring candidate
+          solutions against requirements), not for iacs itself -- iacs is
+          just one of the projects that uses them.
+
           ``requirement``'s own ``parent: impact`` still points at a type
           that remains iacs-only (not moved here): a project using
           ``requirement`` without also depending on iacs won't have that
