@@ -13,17 +13,51 @@ file_info:
           solutions against requirements), not for iacs itself -- iacs is
           just one of the projects that uses them.
 
-          ``requirement``'s own ``parent: impact`` still points at a type
-          that remains iacs-only (not moved here): a project using
-          ``requirement`` without also depending on iacs won't have that
-          parent resolve, same as before the move for any such project.
+          ``requirement`` used to be a scored/tagged component (parent:
+          impact, fields type/value/schedule) rather than a relation. Once
+          a need arose for an inverse of ((solution)) -- marking an entity
+          as something another entity needs, not something it solves -- it
+          made more sense for ``requirement`` itself to fill that role,
+          with the same directed_relation shape and ``X of:`` syntax as
+          ((solution)), rather than invent a separate, differently-named
+          relation type. The old scored/tagged behavior moved to
+          ((requirement_priority)) under its own name rather than being
+          dropped; ``requirement_priority``'s own ``parent: impact`` still
+          points at a type that remains iacs-only (not moved here): a
+          project using ``requirement_priority`` without also depending on
+          iacs won't have that parent resolve, same as before the move for
+          any such project.
     - file_info
 
 requirement:
     - description: >
+          The inverse of ((solution)): marks the ((requirement.source)) as
+          something the ((requirement)).value entity needs in order to
+          function, rather than something it solves. The
+          ((requirement.source)) is required by ((requirement)).value.
+          Lets a solution's own requirements (and those requirements' own
+          candidate solutions, and so on) be expressed purely through
+          relations -- ((solution)) one way, ((requirement)) the other --
+          without tagging any entity as categorically "a requirement" or
+          "a solution" the way ((requirement_priority))/the ``- solution``
+          tag convention does elsewhere.
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity that requires this entity to function.
+              type: entity_ref
+
+requirement_priority:
+    - description: >
           Indicates that an entity represents a requirement that must be
           satisfied by the system design. Requirements should be traced to
           implementations.
+
+          Formerly named ``requirement``; renamed to free that name up for
+          the ((requirement))/((solution)) relation pair once requirements
+          and solutions could be expressed purely through relations. Still
+          the type to use for a scored/tagged requirement (priority, type,
+          schedule) rather than a relation to some other entity.
     - parent: impact
     - field:
           type:
@@ -55,30 +89,6 @@ solution:
     - field:
           value:
               description: The entity that this solution targets (what is being solved).
-              type: entity_ref
-
-required_by:
-    - description: >
-          The inverse of ((solution)): marks the ((required_by.source)) as
-          something the ((required_by)).value entity needs in order to
-          function, rather than something it solves. Lets a solution's own
-          requirements (and those requirements' own candidate solutions, and
-          so on) be expressed purely through relations -- ((solution)) one
-          way, ((required_by)) the other -- without tagging any entity as
-          categorically "a requirement" or "a solution" the way
-          ((requirement))/the ``- solution`` tag convention does elsewhere.
-
-          Named ``required_by`` rather than a literal "requirement of" (an
-          "X of" key is parsed as component type X with modifier "of" --
-          see load_manifest.py's ``_ctf`` splitting) because that would
-          collide with the already-existing rating-typed ((requirement))
-          component: both would resolve to the same registered type, and a
-          plain entity_ref value would fail to coerce against
-          ((requirement))'s ``value`` field (typed ``rating``).
-    - parent: directed_relation
-    - field:
-          value:
-              description: The entity that requires this entity to function.
               type: entity_ref
 
 consideration:
