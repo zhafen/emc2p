@@ -1,0 +1,119 @@
+file_info:
+    - description: >
+          Component types originally defined by iacs (github.com/zhafen/iacs)
+          but generic enough to be useful to any project doing requirement/
+          solution architecture and scoring, not just infrastructure-as-code
+          specifically -- so they live here in emc2p rather than in iacs.
+          This lets a project that depends on emc2p directly without also
+          depending on iacs (e.g. story-simulator's own docs/manifest/
+          story-simulator.yaml) get a real, validated schema for them
+          instead of relying on emc2p's schema-optional duck-typing.
+
+          Named for what these types are for (auditing/scoring candidate
+          solutions against requirements), not for iacs itself -- iacs is
+          just one of the projects that uses them.
+
+          ``requirement``'s own ``parent: impact`` still points at a type
+          that remains iacs-only (not moved here): a project using
+          ``requirement`` without also depending on iacs won't have that
+          parent resolve, same as before the move for any such project.
+    - file_info
+
+requirement:
+    - description: >
+          Indicates that an entity represents a requirement that must be
+          satisfied by the system design. Requirements should be traced to
+          implementations.
+    - parent: impact
+    - field:
+          type:
+              description: The type of requirement.
+              type: str
+              range:
+                  - functional
+                  - quality
+                  - constraint
+              default: functional
+          value:
+              description: >
+                  The priority/impact score for the requirement, with higher
+                  values corresponding to higher priority.
+              type: rating
+              default: 0.5
+          schedule:
+              description: >
+                  How often the requirement needs to be satisfied. If null, the
+                  requirement needs to be satisfied on demand.
+              type: timedelta
+              default: null
+
+solution:
+    - description: >
+          A solution relation is used to show a requirement is fulfilled.
+          The ((solution.source)) solves the ((solution)).requirement.
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity that this solution targets (what is being solved).
+              type: entity_ref
+
+required_by:
+    - description: >
+          The inverse of ((solution)): marks the ((required_by.source)) as
+          something the ((required_by)).value entity needs in order to
+          function, rather than something it solves. Lets a solution's own
+          requirements (and those requirements' own candidate solutions, and
+          so on) be expressed purely through relations -- ((solution)) one
+          way, ((required_by)) the other -- without tagging any entity as
+          categorically "a requirement" or "a solution" the way
+          ((requirement))/the ``- solution`` tag convention does elsewhere.
+
+          Named ``required_by`` rather than a literal "requirement of" (an
+          "X of" key is parsed as component type X with modifier "of" --
+          see load_manifest.py's ``_ctf`` splitting) because that would
+          collide with the already-existing rating-typed ((requirement))
+          component: both would resolve to the same registered type, and a
+          plain entity_ref value would fail to coerce against
+          ((requirement))'s ``value`` field (typed ``rating``).
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity that requires this entity to function.
+              type: entity_ref
+
+consideration:
+    - description: A pro or con used to make a decision.
+    - field:
+          value:
+              description: >
+                  Key for the consideration, which should be a short
+                  summary.
+              type: str
+          description:
+              description: Elaborating on the key when necessary.
+              type: str
+          weight:
+              description: How important this consideration is.
+              type: float
+
+consideration_rating:
+    - field:
+          value:
+              description: >
+                  Key for the consideration this rates. Optional: leave
+                  null for a plain, uncategorized pro/con -- just "is this
+                  strong or weak" -- with no shared axis to weigh it
+                  against others by. A null value's effective weight
+                  defaults to 1 (the same as an explicit consideration
+                  with weight 1) rather than 0, so an uncategorized rating
+                  still counts instead of vanishing from a weighted total.
+              type: str
+              nullable: true
+          note:
+              description: Notes on the rating.
+              type: str
+          rating:
+              description: >
+                  Positive ratings are pros, negative ratings are cons.
+              type: float
+              range: [-1, 1]

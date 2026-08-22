@@ -79,7 +79,8 @@ class TestRawEntityFirstData:
     def test_empty_dir_has_only_builtin(self, tmp_path):
         result = load_yaml.raw_entity_first_data(_yaml_strings([str(tmp_path)]))
         assert "builtins.components" in result
-        assert len(result) == 1
+        assert "builtins.auditing" in result
+        assert all(k.startswith("builtins.") for k in result)
 
     def test_always_includes_builtin(self, minimal_yaml_dir):
         result = load_yaml.raw_entity_first_data(_yaml_strings([minimal_yaml_dir]))
