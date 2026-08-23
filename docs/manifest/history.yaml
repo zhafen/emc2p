@@ -273,3 +273,97 @@ project_history:
               (DuckDB, no live model) via a direct table reshuffle, rather
               than depending on any one backend's own query-planner
               quirks to reproduce it incidentally.
+    expected_fixtures_framework_generalized_from_iacs:
+        - description: >
+              emc2p.testing.expected_fixtures (example_dirs,
+              load_expected_module, assert_subset/assert_not_subset,
+              assert_registries_equal, ExpectedValueChecker) generalizes
+              a load-manifest / apply-transformation / compare-to-
+              expected.py testing pattern that predates the 3-repo split
+              of iacs into iacs/emc2p/story-simulator -- the pre-split
+              iacs already had this exact shape for its own dataflow
+              tests, just not factored out anywhere reusable. Dogfooded
+              in emc2p's own tests/test_dataflows/
+              test_human_validated_examples.py before either downstream
+              project adopted it, which is how assert_subset's dict
+              branch was caught silently skipping scalar-leaf comparisons
+              (checking only key presence, not value equality) -- fixed
+              by adding an explicit scalar-equality check.
+    requirement_and_solution_scoring_types_moved_from_iacs:
+        - description: >
+              requirement, solution, consideration, and
+              consideration_rating used to be iacs-only
+              (iacs/builtins/components.yaml), but a downstream project
+              (story-simulator) started using them in its own
+              architecture-decision manifest without depending on iacs at
+              all -- relying entirely on emc2p's schema-optional duck-
+              typing rather than a real, validated schema. Moved into
+              emc2p/builtins/auditing.yaml (named for what these types
+              are for -- auditing/scoring candidate solutions against
+              requirements -- not for iacs, which is just one consumer).
+
+              requirement was reshaped in the move rather than relocated
+              unchanged: it's now a directed_relation, the inverse of
+              solution (marks an entity as something another entity
+              needs, not something it solves), using the same "X of:"
+              syntax solution already had. Its old scored/tagged shape
+              (priority/type/schedule fields) survives under a new name,
+              requirement_priority, rather than being dropped.
+              consideration_rating's earlier major-pro/minor-pro/.../
+              major-con "effect" field (added, then found confusing in
+              practice, in a downstream project's own live testing
+              framework) was dropped in the same move rather than carried
+              over; consideration_rating.value (which consideration it
+              rates) also became nullable, defaulting to an effective
+              weight of 1 when absent, so an uncategorized pro/con still
+              counts in a weighted total instead of vanishing.
+
+              A companion relation, required_by, was added alongside
+              (not moved from anywhere -- new): the other direction of
+              the same relationship solution already covers one way,
+              letting a chain of nested requirements-of-solutions-of-
+              requirements be expressed purely through relations, without
+              tagging any entity as categorically "a requirement" or "a
+              solution." Not named literally "requirement of" (the
+              natural-reading counterpart to "solution of") because an
+              "X of" key parses as component type X with modifier "of"
+              (see load_manifest.py's own _ctf splitting) -- that would
+              collide with requirement's own reshaped meaning above, both
+              resolving to the same registered type.
+    entity_similarity_and_deduplication_module_added:
+        - description: >
+              emc2p.similarity: cosine_similarity/rank_by_similarity (rank
+              arbitrary candidate texts against a query) and
+              pairwise_similarities/find_duplicate_groups (compare every
+              candidate against every other one, closing matches
+              transitively via union-find into duplicate clusters, rather
+              than leaving a flat pile of pairwise edges for the caller to
+              reconstruct groups from by hand) -- plus find_similar_entities/
+              find_duplicate_entities, the registry-aware convenience
+              wrappers reading each entity's description.value by default.
+
+              Embedding-provider-agnostic by construction: every function
+              takes an injectable embed_fn rather than calling a specific
+              provider directly, so tests use a fast deterministic fake
+              instead of real network calls -- the same approach already
+              used for emc2p.agents.tool_calling_loop's own tests.
+              embed_with_litellm is the default production embed_fn,
+              reusing the litellm dependency already gated behind the
+              "agents" extra.
+
+              Motivated by (but not specific to) deciding where a new,
+              naturally-described entity belongs in an existing
+              requirement/solution tree -- retrieval-narrow candidates by
+              similarity, then hand the shortlist to an agent for
+              judgment, rather than either a pure-embedding nearest-
+              neighbor placement (ignores hierarchy) or a full agentic
+              tree traversal (expensive, inconsistent on ambiguous cases)
+              alone. General-purpose rather than placement-specific,
+              since the same primitives cover picking which component
+              type to use or deduplicating component definitions -- see
+              scripts/find_duplicate_component_types.py, which applied
+              find_duplicate_entities to emc2p's own builtin component
+              types and, in the process, caught a real bug:
+              Registrar.from_manifest(["emc2p/builtins"]) double-loads
+              every entity in that directory, since it's *always*
+              auto-included regardless of what's passed as input dirs.
