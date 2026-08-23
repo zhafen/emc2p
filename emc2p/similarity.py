@@ -10,12 +10,22 @@ gated behind the "agents" extra (litellm) the same way
 ``emc2p.agents.tool_calling_loop`` already is.
 
 General-purpose, not entity-placement-specific: the use case driving this
-(deciding which existing requirement/solution entity a new, naturally-
-described entity is most related to -- see iacs's own
-``requirement_solution_modeling_discussion``) is just one caller of
+(deciding which existing entity a new, naturally-described one is most
+related to, in order to link it in appropriately) is just one caller of
 ``find_similar_entities``, not baked into it. It's the retrieval half of
 a retrieval-narrowed-then-agent-judged placement workflow: this module
 only ranks candidates by similarity, it doesn't decide anything.
+
+``pairwise_similarities``/``find_duplicate_groups`` extend the same
+primitives to the "considering multiple entities at once" case: rather
+than ranking candidates against one query, they compare every candidate
+against every other one to surface likely duplicates -- one entity/type
+definition that's really the same thing as another, described twice.
+``find_duplicate_groups`` closes matches transitively (A~B, B~C -> one
+group of {A, B, C}) via union-find, the same approach an entity-
+deduplication pipeline typically needs to resolve transitive duplicates
+before finalizing a merge, rather than leaving the caller to reconstruct
+groups from a flat pile of pairwise edges by hand.
 """
 
 from __future__ import annotations
@@ -87,6 +97,27 @@ def rank_by_similarity(
     return scored[:top_k] if top_k is not None else scored
 
 
+def _entity_texts(
+    registry,
+    *,
+    component_type: str,
+    field: str,
+    exclude_entity_ids: Sequence[str] = (),
+) -> dict[str, str]:
+    """entity_id -> ``component_type.field`` text for every entity in
+    ``registry`` that has one, skipping ``exclude_entity_ids`` and
+    entities missing the field entirely (e.g. a tag component with no
+    description) -- there's no text to embed for those."""
+    table = registry.get(component_type)
+    df = table.execute() if hasattr(table, "execute") else table
+    exclude = set(exclude_entity_ids)
+    return {
+        str(row["entity_id"]): str(row[field])
+        for _, row in df.iterrows()
+        if str(row["entity_id"]) not in exclude and not pd.isna(row[field])
+    }
+
+
 def find_similar_entities(
     registry,
     query: str,
@@ -126,15 +157,132 @@ def find_similar_entities(
     list[tuple[str, float]]
         (entity_id, similarity) pairs, most similar first.
     """
-    table = registry.get(component_type)
-    df = table.execute() if hasattr(table, "execute") else table
-    exclude = set(exclude_entity_ids)
-    candidates = {
-        str(row["entity_id"]): str(row[field])
-        for _, row in df.iterrows()
-        if str(row["entity_id"]) not in exclude and not pd.isna(row[field])
-    }
+    candidates = _entity_texts(
+        registry, component_type=component_type, field=field, exclude_entity_ids=exclude_entity_ids
+    )
     return rank_by_similarity(query, candidates, embed_fn, top_k=top_k)
+
+
+def pairwise_similarities(
+    candidates: dict[str, str],
+    embed_fn: EmbedFn,
+    *,
+    threshold: float | None = None,
+) -> list[tuple[str, str, float]]:
+    """Cosine similarity between every pair of ``candidates``, most
+    similar first.
+
+    ``embed_fn`` is called once with every candidate text, regardless of
+    how many candidates there are -- one round trip, not one per pair.
+
+    Parameters
+    ----------
+    candidates : dict[str, str]
+        Candidate id -> text.
+    embed_fn : EmbedFn
+    threshold : float | None
+        Drop any pair scoring below this. ``None`` keeps every pair.
+
+    Returns
+    -------
+    list[tuple[str, str, float]]
+        (id_a, id_b, similarity) triples, each unordered pair reported
+        once (id_a < id_b), most similar first. Ties broken by
+        (id_a, id_b) for a stable, reproducible order.
+    """
+    ids = list(candidates)
+    if len(ids) < 2:
+        return []
+    embeddings = dict(zip(ids, embed_fn([candidates[i] for i in ids])))
+    pairs = []
+    for i, id_a in enumerate(ids):
+        for id_b in ids[i + 1:]:
+            score = cosine_similarity(embeddings[id_a], embeddings[id_b])
+            if threshold is None or score >= threshold:
+                pairs.append((id_a, id_b, score))
+    pairs.sort(key=lambda triple: (-triple[2], triple[0], triple[1]))
+    return pairs
+
+
+def find_duplicate_groups(
+    candidates: dict[str, str],
+    embed_fn: EmbedFn,
+    *,
+    threshold: float = 0.9,
+) -> list[list[str]]:
+    """Group ``candidates`` into likely-duplicate clusters.
+
+    Any two candidates scoring >= ``threshold`` land in the same group,
+    and groups are transitively closed via union-find -- if A~B and B~C
+    both clear the threshold, A/B/C end up in one group even if A and C
+    alone wouldn't have. A candidate with no match above threshold isn't
+    included in the output at all (nothing to report -- it's not a
+    duplicate of anything here).
+
+    Parameters
+    ----------
+    candidates : dict[str, str]
+        Candidate id -> text.
+    embed_fn : EmbedFn
+    threshold : float
+        Similarity above which two candidates count as duplicates.
+        Cosine similarity between two independently-worded descriptions
+        of the same thing is rarely much above 0.9, and everyday
+        unrelated text rarely reaches it, so 0.9 is a reasonable
+        starting point -- tune per embedding model/domain.
+
+    Returns
+    -------
+    list[list[str]]
+        Each likely-duplicate group (2+ candidate ids, sorted), sorted
+        by their first (smallest) id, for a stable, reproducible order.
+    """
+    pairs = pairwise_similarities(candidates, embed_fn, threshold=threshold)
+    parent = {cid: cid for cid in candidates}
+
+    def find(cid: str) -> str:
+        while parent[cid] != cid:
+            parent[cid] = parent[parent[cid]]
+            cid = parent[cid]
+        return cid
+
+    def union(a: str, b: str) -> None:
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            parent[root_b] = root_a
+
+    for id_a, id_b, _ in pairs:
+        union(id_a, id_b)
+
+    groups: dict[str, list[str]] = {}
+    for cid in candidates:
+        groups.setdefault(find(cid), []).append(cid)
+
+    return sorted(
+        (sorted(members) for members in groups.values() if len(members) > 1),
+        key=lambda members: members[0],
+    )
+
+
+def find_duplicate_entities(
+    registry,
+    embed_fn: EmbedFn,
+    *,
+    component_type: str = "description",
+    field: str = "value",
+    threshold: float = 0.9,
+    exclude_entity_ids: Sequence[str] = (),
+) -> list[list[str]]:
+    """Group entities in ``registry`` into likely-duplicate clusters, by
+    cosine similarity between their ``component_type.field`` text
+    (default: ``description.value``). See ``find_duplicate_groups`` for
+    the grouping/threshold semantics; ``find_similar_entities`` for what
+    ``component_type``/``field``/``exclude_entity_ids`` mean here.
+    """
+    candidates = _entity_texts(
+        registry, component_type=component_type, field=field, exclude_entity_ids=exclude_entity_ids
+    )
+    return find_duplicate_groups(candidates, embed_fn, threshold=threshold)
 
 
 def embed_with_litellm(texts: list[str], model: str = "text-embedding-3-small") -> list[list[float]]:

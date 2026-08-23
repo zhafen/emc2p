@@ -16,7 +16,10 @@ from emc2p.registrar import Registrar
 from emc2p.similarity import (
     cosine_similarity,
     embed_with_litellm,
+    find_duplicate_entities,
+    find_duplicate_groups,
     find_similar_entities,
+    pairwise_similarities,
     rank_by_similarity,
 )
 from tests.conftest import make_registry
@@ -125,6 +128,105 @@ class TestFindSimilarEntities:
         registrar = Registrar(self._registry())
         results = find_similar_entities(registrar, "cat food", _fake_embed)
         assert results[0][0] == "e1"
+
+
+def _vector_embed(vectors: dict[str, tuple[float, ...]]):
+    """A fake embed_fn with hand-picked vectors, keyed by text (candidate
+    texts are just their own id in tests using this) -- lets a test
+    control exact cosine similarities instead of relying on word overlap."""
+    def embed_fn(texts: list[str]) -> list[list[float]]:
+        return [list(vectors[text]) for text in texts]
+    return embed_fn
+
+
+class TestPairwiseSimilarities:
+    def test_reports_each_unordered_pair_once(self):
+        candidates = {"a": "apple", "b": "banana", "c": "cherry"}
+        pairs = pairwise_similarities(candidates, _fake_embed)
+        assert len(pairs) == 3  # 3 choose 2
+        assert len({frozenset((a, b)) for a, b, _ in pairs}) == 3
+
+    def test_threshold_filters_pairs(self):
+        candidates = {
+            "a": "apple pie recipe",
+            "b": "apple pie recipe",
+            "c": "unrelated database migration",
+        }
+        pairs = pairwise_similarities(candidates, _fake_embed, threshold=0.99)
+        assert [(id_a, id_b) for id_a, id_b, _ in pairs] == [("a", "b")]
+
+    def test_fewer_than_two_candidates_returns_empty(self):
+        assert pairwise_similarities({}, _fake_embed) == []
+        assert pairwise_similarities({"a": "text"}, _fake_embed) == []
+
+    def test_embed_fn_called_once_with_every_candidate(self):
+        calls = []
+
+        def counting_embed(texts):
+            calls.append(list(texts))
+            return _fake_embed(texts)
+
+        pairwise_similarities({"a": "text a", "b": "text b", "c": "text c"}, counting_embed)
+        assert calls == [["text a", "text b", "text c"]]
+
+
+class TestFindDuplicateGroups:
+    def test_groups_transitively_even_when_the_endpoints_alone_would_not(self):
+        # cos(a,b) ~= cos(b,c) ~= 0.71 (>= threshold), cos(a,c) = 0.0 (well
+        # below) -- a and c only end up together because b bridges them.
+        vectors = {"a": (1, 0, 0), "b": (1, 1, 0), "c": (0, 1, 0), "d": (0, 0, 1)}
+        candidates = {cid: cid for cid in vectors}
+        groups = find_duplicate_groups(candidates, _vector_embed(vectors), threshold=0.7)
+        assert groups == [["a", "b", "c"]]
+
+    def test_isolated_candidate_is_excluded_from_output(self):
+        vectors = {"a": (1, 0, 0), "b": (1, 1, 0), "c": (0, 1, 0), "d": (0, 0, 1)}
+        candidates = {cid: cid for cid in vectors}
+        groups = find_duplicate_groups(candidates, _vector_embed(vectors), threshold=0.7)
+        assert all("d" not in group for group in groups)
+
+    def test_default_threshold_groups_near_identical_text(self):
+        candidates = {
+            "a": "feed the cat every morning",
+            "b": "feed the cat every morning",
+            "c": "change the car oil regularly",
+        }
+        assert find_duplicate_groups(candidates, _fake_embed) == [["a", "b"]]
+
+    def test_no_duplicates_returns_empty_list(self):
+        candidates = {"a": "apples", "b": "oranges", "c": "database migration"}
+        assert find_duplicate_groups(candidates, _fake_embed, threshold=0.99) == []
+
+    def test_groups_sorted_by_first_member(self):
+        vectors = {"z": (1, 0), "y": (1, 0), "x": (0, 1)}
+        candidates = {cid: cid for cid in vectors}
+        groups = find_duplicate_groups(candidates, _vector_embed(vectors), threshold=0.5)
+        assert groups == [["y", "z"]]
+
+
+class TestFindDuplicateEntities:
+    def _registry(self):
+        return make_registry({
+            "description": [
+                {"entity_id": "e1", "value": "feed the cat every morning"},
+                {"entity_id": "e2", "value": "feed the cat every morning"},
+                {"entity_id": "e3", "value": "change the car oil regularly"},
+                {"entity_id": "e4", "value": None},
+            ],
+        })
+
+    def test_groups_duplicate_entities(self):
+        assert find_duplicate_entities(self._registry(), _fake_embed) == [["e1", "e2"]]
+
+    def test_skips_entities_with_no_text(self):
+        groups = find_duplicate_entities(self._registry(), _fake_embed)
+        assert all("e4" not in group for group in groups)
+
+    def test_excludes_given_entity_ids(self):
+        groups = find_duplicate_entities(
+            self._registry(), _fake_embed, exclude_entity_ids=["e1"]
+        )
+        assert groups == []
 
 
 class TestEmbedWithLitellm:
