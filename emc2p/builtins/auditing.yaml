@@ -46,6 +46,14 @@ requirement:
           value:
               description: The entity that requires this entity to function.
               type: entity_ref
+          selected:
+              description: >
+                  True when this is the requirement actually in use, among
+                  multiple candidate requirements recorded for the same
+                  target. Null/false otherwise -- absence doesn't imply
+                  rejection, just that a choice hasn't been recorded yet.
+              type: bool
+              nullable: true
 
 requirement_priority:
     - description: >
@@ -90,6 +98,14 @@ solution:
           value:
               description: The entity that this solution targets (what is being solved).
               type: entity_ref
+          selected:
+              description: >
+                  True when this is the solution actually in use, among
+                  multiple candidate solutions recorded for the same
+                  target. Null/false otherwise -- absence doesn't imply
+                  rejection, just that a choice hasn't been recorded yet.
+              type: bool
+              nullable: true
 
 consideration:
     - description: A pro or con used to make a decision.
