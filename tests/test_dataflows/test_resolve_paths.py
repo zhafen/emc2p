@@ -67,6 +67,23 @@ class TestComponentsWithResolvedPaths:
         df = _resolve(registry)["requirement"].to_pandas()
         assert df.set_index("entity_id").loc[CHILD_EID, "value_eid"] == PARENT_EID
 
+    def test_empty_string_requirement_defaults_to_parent(self):
+        """The real entity-first manifest loader represents a bare (no
+        ``of:`` target) tag's value as ``""``, not ``None`` -- confirmed by
+        loading a real manifest through Registrar.from_manifest and
+        inspecting the raw component table. Empty string must trigger the
+        same implicit-parent fallback as an actual null."""
+        registry = make_registry({
+            "entity_id": _entity_id_rows(other_entity=True),
+            "field": _field_rows("requirement"),
+            "requirement": [
+                {"entity_id": CHILD_EID, "component_index": 0, "value": ""},
+                {"entity_id": OTHER_EID, "component_index": 0, "value": "something_else"},
+            ],
+        })
+        df = _resolve(registry)["requirement"].to_pandas()
+        assert df.set_index("entity_id").loc[CHILD_EID, "value_eid"] == PARENT_EID
+
     def test_bare_solution_defaults_to_parent(self):
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),

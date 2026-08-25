@@ -112,7 +112,7 @@ def components_with_resolved_paths(
                 continue
 
             def resolve(val, owner_entity_id, _df=entity_id_df):
-                if pd.isna(val):
+                if pd.isna(val) or val == "":
                     if implicit_parent_target:
                         return hierarchy_parent_by_entity.get(owner_entity_id)
                     return None
