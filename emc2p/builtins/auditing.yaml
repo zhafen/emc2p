@@ -107,6 +107,26 @@ solution:
               type: bool
               nullable: true
 
+dependence:
+    - description: >
+          Marks the ((dependence.source)) -- typically a selected
+          ((solution)) -- as needing the ((dependence)).value entity to
+          exist/be implemented before it can be considered realized.
+          Unlike ((requirement))/((solution)), there's no inverse pair:
+          a dependence only ever points one way, from the thing that
+          needs something to the thing it needs, and doesn't carry a
+          ``selected`` field of its own -- there's no "candidate
+          dependencies to choose among" the way there are candidate
+          solutions to a requirement. Distinct from ((requirement)) as
+          well: a requirement is a need the design itself must satisfy
+          (traded off against alternative solutions); a dependence is a
+          concrete implementation artifact a chosen solution needs built.
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity that must exist for this entity to be realized.
+              type: entity_ref
+
 consideration:
     - description: A pro or con used to make a decision.
     - field:
