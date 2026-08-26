@@ -122,6 +122,39 @@ class TestComponentsWithResolvedPaths:
         df = _resolve(registry)["calls"].to_pandas()
         assert pd.isna(df.set_index("entity_id").loc[CHILD_EID, "value_eid"])
 
+    def test_explicit_dependence_target_resolves(self):
+        """dependence works like requirement/solution's own explicit-target
+        case: a real value_eid, resolved by entity_ref lookup."""
+        registry = make_registry({
+            "entity_id": _entity_id_rows(other_entity=True) + [
+                {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
+            ],
+            "field": _field_rows("dependence"),
+            "dependence": [
+                {"entity_id": CHILD_EID, "component_index": 0, "value": "something_else"},
+            ],
+        })
+        df = _resolve(registry)["dependence"].to_pandas()
+        assert df.set_index("entity_id").loc[CHILD_EID, "value_eid"] == OTHER_EID
+
+    def test_bare_dependence_stays_unresolved(self):
+        """Unlike requirement/solution, dependence has no implicit-parent
+        fallback -- there's no "candidate dependencies to choose among" the
+        way there are candidate solutions to a requirement, so an empty
+        value should stay unresolved rather than default to the parent."""
+        registry = make_registry({
+            "entity_id": _entity_id_rows(other_entity=True) + [
+                {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
+            ],
+            "field": _field_rows("dependence"),
+            "dependence": [
+                {"entity_id": CHILD_EID, "component_index": 0, "value": None},
+                {"entity_id": OTHER_EID, "component_index": 0, "value": "something_else"},
+            ],
+        })
+        df = _resolve(registry)["dependence"].to_pandas()
+        assert pd.isna(df.set_index("entity_id").loc[CHILD_EID, "value_eid"])
+
     def test_top_level_entity_with_bare_requirement_has_no_parent_to_default_to(self):
         """A top-level entity (no parent) has nothing for
         parent_from_hierarchy to offer -- value_eid should stay unresolved,
