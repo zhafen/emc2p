@@ -597,7 +597,8 @@ def component_type_table(
     Returns
     -------
     ir.Table
-        Columns: entity_id, component_index, component_type, modifier, derived, skip_on_export.
+        Columns: entity_id, component_index, component_type, modifier,
+        derived, skip_on_export, implicit_parent.
     """
     df = keyvalue_store.execute()
 
@@ -611,6 +612,7 @@ def component_type_table(
     ct_data = df[df["component_type"] == "component_type"]
     derived_set: set[str] = set()
     skip_set: set[str] = set()
+    implicit_parent_set: set[str] = set()
     for _, row in ct_data.iterrows():
         eid = str(row["entity_id"])
         field = str(row["field"])
@@ -622,10 +624,13 @@ def component_type_table(
             derived_set.add(type_name)
         elif field == "skip_on_export" and val:
             skip_set.add(type_name)
+        elif field == "implicit_parent" and val:
+            implicit_parent_set.add(type_name)
 
     meta_df = df[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
     meta_df["derived"] = meta_df["component_type"].isin(derived_set)
     meta_df["skip_on_export"] = meta_df["component_type"].isin(skip_set)
+    meta_df["implicit_parent"] = meta_df["component_type"].isin(implicit_parent_set)
     meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
     yaml_ct = ibis.memtable(meta_df)
 
@@ -640,6 +645,7 @@ def component_type_table(
     csv_df = pd.concat(csv_rows, ignore_index=True)
     csv_df["derived"] = False
     csv_df["skip_on_export"] = False
+    csv_df["implicit_parent"] = False
     csv_df["modifier"] = csv_df["modifier"].astype(pd.StringDtype())
     csv_df["component_type"] = csv_df["component_type"].astype(pd.StringDtype())
     return ibis.union(yaml_ct, ibis.memtable(csv_df))

@@ -3,6 +3,7 @@
 from emc2p.dataflows.derive.resolve_paths import (
     components_with_resolved_paths,
     fields_of_type_entity_ref,
+    implicit_parent_target_types,
     parent_from_hierarchy,
 )
 import pandas as pd
@@ -40,6 +41,17 @@ def _field_rows(*type_names):
     ]
 
 
+def _component_type_rows(*type_names):
+    """Rows for the component_type table flagging each named type
+    implicit_parent=True, matching requirement/solution's own
+    ``- component_type: {implicit_parent: true}`` declaration in
+    auditing.yaml."""
+    return [
+        {"entity_id": f"def_{name}", "component_index": 0, "component_type": name, "implicit_parent": True}
+        for name in type_names
+    ]
+
+
 def _resolve(registry):
     entity_id = registry._components["entity_id"]
     field = registry._components["field"]
@@ -49,6 +61,7 @@ def _resolve(registry):
         components=registry._components,
         fields_of_type_entity_ref=fields_of_type_entity_ref(entity_id, field),
         parent_from_hierarchy=hierarchy,
+        implicit_parent_target_types=implicit_parent_target_types(registry._components),
     )
 
 
@@ -57,6 +70,7 @@ class TestComponentsWithResolvedPaths:
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
+            "component_type": _component_type_rows("requirement"),
             "requirement": [
                 {"entity_id": CHILD_EID, "component_index": 0, "value": None},
                 # Non-null sibling row, so pandas/duckdb infers a real
@@ -75,6 +89,7 @@ class TestComponentsWithResolvedPaths:
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
+            "component_type": _component_type_rows("requirement"),
             "requirement": [
                 {"entity_id": CHILD_EID, "component_index": 0, "value": ""},
                 {"entity_id": OTHER_EID, "component_index": 0, "value": "something_else"},
@@ -87,6 +102,7 @@ class TestComponentsWithResolvedPaths:
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("solution"),
+            "component_type": _component_type_rows("solution"),
             "solution": [
                 {"entity_id": CHILD_EID, "component_index": 0, "value": None},
                 {"entity_id": OTHER_EID, "component_index": 0, "value": "something_else"},
@@ -99,6 +115,7 @@ class TestComponentsWithResolvedPaths:
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
+            "component_type": _component_type_rows("requirement"),
             "requirement": [
                 {"entity_id": CHILD_EID, "component_index": 0, "value": "something_else"},
             ],
@@ -165,6 +182,7 @@ class TestComponentsWithResolvedPaths:
                 {"value": "def_requirement", "path": "builtins.yaml:requirement", "entity_key": "requirement"},
             ],
             "field": _field_rows("requirement"),
+            "component_type": _component_type_rows("requirement"),
             "requirement": [
                 {"entity_id": PARENT_EID, "component_index": 0, "value": None},
                 {"entity_id": OTHER_EID, "component_index": 0, "value": "something_else"},

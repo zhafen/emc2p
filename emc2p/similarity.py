@@ -26,13 +26,20 @@ group of {A, B, C}) via union-find, the same approach an entity-
 deduplication pipeline typically needs to resolve transitive duplicates
 before finalizing a merge, rather than leaving the caller to reconstruct
 groups from a flat pile of pairwise edges by hand.
+
+Similarity math is plain numpy (already an effective dependency via
+pandas/ibis, so this doesn't add a new one) rather than a vector-database/
+ANN library: candidate counts here are architecture-manifest-sized (an
+emc2p/iacs/story-simulator project's own entities, not a general text
+corpus), so an in-memory brute-force comparison is the right-sized tool
+-- an ANN index earns its cost at a scale this module never sees.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Callable, Sequence
 
+import numpy as np
 import pandas as pd
 
 EmbedFn = Callable[[list[str]], list[list[float]]]
@@ -45,12 +52,28 @@ def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     direction to compare, so "no similarity claim" is more honest than
     an arbitrary tie-break value.
     """
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b))
+    a_arr = np.asarray(a, dtype=float)
+    b_arr = np.asarray(b, dtype=float)
+    norm_a = np.linalg.norm(a_arr)
+    norm_b = np.linalg.norm(b_arr)
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    return float(np.dot(a_arr, b_arr) / (norm_a * norm_b))
+
+
+def _pairwise_cosine_similarity(matrix: np.ndarray) -> np.ndarray:
+    """Cosine similarity between every row of ``matrix`` and every other
+    row, as one vectorized matrix product -- the shared core of
+    ``rank_by_similarity``/``pairwise_similarities``' own all-pairs math.
+
+    Row pairs where either row is all-zero score 0.0 (see
+    ``cosine_similarity``), not NaN from a division by zero.
+    """
+    norms = np.linalg.norm(matrix, axis=1)
+    norm_products = np.outer(norms, norms)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        similarities = (matrix @ matrix.T) / norm_products
+    return np.where(norm_products == 0, 0.0, similarities)
 
 
 def rank_by_similarity(
@@ -87,12 +110,9 @@ def rank_by_similarity(
         return []
     ids = list(candidates)
     texts = [query] + [candidates[i] for i in ids]
-    embeddings = embed_fn(texts)
-    query_embedding, candidate_embeddings = embeddings[0], embeddings[1:]
-    scored = [
-        (cid, cosine_similarity(query_embedding, cemb))
-        for cid, cemb in zip(ids, candidate_embeddings)
-    ]
+    embeddings = np.asarray(embed_fn(texts), dtype=float)
+    similarities = _pairwise_cosine_similarity(embeddings)[0, 1:]
+    scored = list(zip(ids, similarities.tolist()))
     scored.sort(key=lambda pair: (-pair[1], pair[0]))
     return scored[:top_k] if top_k is not None else scored
 
@@ -193,13 +213,14 @@ def pairwise_similarities(
     ids = list(candidates)
     if len(ids) < 2:
         return []
-    embeddings = dict(zip(ids, embed_fn([candidates[i] for i in ids])))
+    embeddings = np.asarray(embed_fn([candidates[i] for i in ids]), dtype=float)
+    similarities = _pairwise_cosine_similarity(embeddings)
     pairs = []
     for i, id_a in enumerate(ids):
-        for id_b in ids[i + 1:]:
-            score = cosine_similarity(embeddings[id_a], embeddings[id_b])
+        for j in range(i + 1, len(ids)):
+            score = float(similarities[i, j])
             if threshold is None or score >= threshold:
-                pairs.append((id_a, id_b, score))
+                pairs.append((id_a, ids[j], score))
     pairs.sort(key=lambda triple: (-triple[2], triple[0], triple[1]))
     return pairs
 

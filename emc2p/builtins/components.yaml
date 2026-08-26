@@ -87,6 +87,14 @@ base_data_type:
                               sourced directly from YAML.
                           type: bool
                           default: false
+                      implicit_parent:
+                          description: >
+                              Whether an empty entity_ref field on an entity of this
+                              component type implicitly targets the owning entity's
+                              own hierarchy parent, instead of staying unresolved
+                              (see emc2p.dataflows.derive.resolve_paths).
+                          type: bool
+                          default: false
                 - todo: >
                       Component definitions inherit the type for the value field from
                       their parents, but we also allow users to define the type of value

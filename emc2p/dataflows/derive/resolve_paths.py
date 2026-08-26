@@ -50,15 +50,27 @@ def fields_of_type_entity_ref(entity_id: ir.Table, field: ir.Table) -> dict[str,
     return result
 
 
-# Component types whose entity_ref field, when left empty, implicitly targets
-# the owning entity's own parent -- e.g. a childless ``- requirement`` (no
-# ``of:`` target) means "this entity is a requirement of its parent", per
-# iacs.yaml's own implied_relationship_with_comp note. Scoped to exactly
-# these two names (not generically to every directed_relation subtype, which
-# would also sweep in e.g. ``parent`` itself and any future ``calls``/
-# ``imports`` relation) because that note's wording -- "a requirement or
-# solution with no target" -- only ever claimed this behavior for these two.
-IMPLICIT_PARENT_TARGET_TYPES = {"requirement", "solution"}
+def implicit_parent_target_types(components: dict) -> set[str]:
+    """Component type names marked ``implicit_parent: true`` in the
+    ``component_type`` table (see auditing.yaml's ``requirement``/
+    ``solution``) -- an empty entity_ref field on an entity of one of these
+    types implicitly targets the owning entity's own hierarchy parent
+    instead of staying unresolved, e.g. a childless ``- requirement`` (no
+    ``of:`` target) means "this entity is a requirement of its parent", per
+    iacs.yaml's own implied_relationship_with_comp note.
+    """
+    if "component_type" not in components:
+        return set()
+    ct = components["component_type"]
+    if "implicit_parent" not in ct.columns:
+        return set()
+    return set(
+        ct.filter(ct["implicit_parent"] == True)
+        .select("component_type")
+        .distinct()
+        .execute()["component_type"]
+        .tolist()
+    )
 
 
 @extract_fields(dict(parent=ir.Table))
@@ -67,6 +79,7 @@ def components_with_resolved_paths(
     components: dict,
     fields_of_type_entity_ref: dict[str, list[str]],
     parent_from_hierarchy: ir.Table,
+    implicit_parent_target_types: set[str],
 ) -> dict:
     """Return all components, with entity_ref fields resolved to ``{field}_eid`` columns.
 
@@ -74,9 +87,9 @@ def components_with_resolved_paths(
     types listed in ``fields_of_type_entity_ref``, each named field gets a
     companion ``{field}_eid`` column containing the resolved entity ID
     (``None`` if 0 or 2+ candidates match). For component types in
-    ``IMPLICIT_PARENT_TARGET_TYPES`` (``requirement``/``solution``), an empty
-    field value resolves to the owning entity's own hierarchy parent instead
-    of staying unresolved.
+    ``implicit_parent_target_types`` (``requirement``/``solution``, by
+    default), an empty field value resolves to the owning entity's own
+    hierarchy parent instead of staying unresolved.
 
     Parameters
     ----------
@@ -88,8 +101,11 @@ def components_with_resolved_paths(
         Mapping of component_type -> list of field names with entity_ref type.
     parent_from_hierarchy : ir.Table
         Hierarchy-implied parent per entity, keyed by ``entity_id`` ->
-        ``parent_eid``. Used as the implicit target for empty
-        ``requirement``/``solution`` values.
+        ``parent_eid``. Used as the implicit target for empty values of a
+        type in ``implicit_parent_target_types``.
+    implicit_parent_target_types : set[str]
+        Component type names whose empty entity_ref field should default to
+        the owning entity's own hierarchy parent.
 
     Returns
     -------
@@ -106,7 +122,7 @@ def components_with_resolved_paths(
         if comp_type not in result:
             continue
         df = result[comp_type].to_pandas()
-        implicit_parent_target = comp_type in IMPLICIT_PARENT_TARGET_TYPES
+        implicit_parent_target = comp_type in implicit_parent_target_types
         for field_name in field_names:
             if field_name not in df.columns:
                 continue
