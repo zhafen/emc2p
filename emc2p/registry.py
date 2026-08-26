@@ -555,11 +555,11 @@ class Registry:
 
         Two rows tied on the time_dimension value are broken by
         ``_seq_{field}`` (see ``merge``) when present, most-recent-write
-        wins — so a second update in the same in-world turn no longer loses
+        wins — so a second update in the same in-world turn doesn't lose
         to the first via an arbitrary, backend-dependent window-function
-        order. A table with no ``_seq_{field}`` column yet (e.g. one that
-        predates this column, or was inserted directly rather than through
-        ``merge``) falls back to that prior arbitrary tie-break.
+        order. A table with no ``_seq_{field}`` column (e.g. one inserted
+        directly rather than through ``merge``) falls back to that
+        arbitrary tie-break.
 
         Raises:
             ValueError: If ``table_name`` has more than one time_dimension field.

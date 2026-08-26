@@ -18,12 +18,11 @@ dataflow packages are registered under. The expected layout this assumes:
   asserted to *not* match -- a negative case proving the DAG would have
   caught wrong data, not just that the fixture is too lenient to fail.
 
-Originally developed in iacs (whose own dataflows drove the only
-downstream project at the time), then extracted here once emc2p's own
-generic ETL/derive dataflows moved out from under a second downstream
-project (story-simulator) with a different transformation mechanism of
-its own (a live MCP session's turns, not an in-process Hamilton driver) --
-see each project's own test_human_validated for how it plugs in.
+See each downstream project's own test_human_validated for how it plugs
+in -- a project may drive an in-process Hamilton dataflow, a live MCP
+session's turns, or any other transformation mechanism, since this
+framework only depends on the ``examples_dir``/``expected_dir`` layout
+above.
 """
 
 from __future__ import annotations

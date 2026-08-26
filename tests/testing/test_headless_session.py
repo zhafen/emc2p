@@ -102,13 +102,10 @@ def _stub_session(
 
 
 def test_fail_terminates_a_still_running_process_without_hanging(tmp_path):
-    """The bug this guards against: _fail() used to read the process's
-    stderr (blocking until EOF) before ever killing it -- a deadlock.
+    """Guards against _fail() deadlocking on a still-running process.
 
-    EOF only arrives once the process exits, and nothing killed it until
-    after that read. Confirmed live once (see docs/manifest/history.yaml:
-    project_history.headless_session_fail_deadlock_fixed): every timeout
-    in this harness silently hung instead of firing until this was fixed.
+    _fail() must kill the process before reading its stderr: EOF only
+    arrives once the process exits, so reading first would block forever.
     """
     session = _stub_session(tmp_path)
     proc = session.proc

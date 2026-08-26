@@ -69,10 +69,9 @@ class TestComponentsWithResolvedPaths:
 
     def test_empty_string_requirement_defaults_to_parent(self):
         """The real entity-first manifest loader represents a bare (no
-        ``of:`` target) tag's value as ``""``, not ``None`` -- confirmed by
-        loading a real manifest through Registrar.from_manifest and
-        inspecting the raw component table. Empty string must trigger the
-        same implicit-parent fallback as an actual null."""
+        ``of:`` target) tag's value as ``""``, not ``None``; empty string
+        must trigger the same implicit-parent fallback as an actual
+        null."""
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
@@ -110,7 +109,7 @@ class TestComponentsWithResolvedPaths:
     def test_bare_field_on_unscoped_type_stays_unresolved(self):
         """Only requirement/solution get the implicit-parent fallback -- an
         unrelated entity_ref-typed component with an empty value should
-        stay unresolved, same as before this feature existed."""
+        stay unresolved."""
         registry = make_registry({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("calls"),

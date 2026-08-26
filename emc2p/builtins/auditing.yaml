@@ -1,32 +1,17 @@
 file_info:
     - description: >
-          Component types originally defined by iacs (github.com/zhafen/iacs)
-          but generic enough to be useful to any project doing requirement/
-          solution architecture and scoring, not just infrastructure-as-code
-          specifically -- so they live here in emc2p rather than in iacs.
-          This lets a project that depends on emc2p directly without also
-          depending on iacs (e.g. story-simulator's own docs/manifest/
-          story-simulator.yaml) get a real, validated schema for them
-          instead of relying on emc2p's schema-optional duck-typing.
+          Component types generic enough to be useful to any project doing
+          requirement/solution architecture and scoring, not just
+          infrastructure-as-code specifically -- so they live here in
+          emc2p rather than in iacs. This lets a project that depends on
+          emc2p directly without also depending on iacs (e.g.
+          story-simulator's own docs/manifest/story-simulator.yaml) get a
+          real, validated schema for them instead of relying on emc2p's
+          schema-optional duck-typing.
 
           Named for what these types are for (auditing/scoring candidate
           solutions against requirements), not for iacs itself -- iacs is
           just one of the projects that uses them.
-
-          ``requirement`` used to be a scored/tagged component (parent:
-          impact, fields type/value/schedule) rather than a relation. Once
-          a need arose for an inverse of ((solution)) -- marking an entity
-          as something another entity needs, not something it solves -- it
-          made more sense for ``requirement`` itself to fill that role,
-          with the same directed_relation shape and ``X of:`` syntax as
-          ((solution)), rather than invent a separate, differently-named
-          relation type. The old scored/tagged behavior moved to
-          ((requirement_priority)) under its own name rather than being
-          dropped; ``requirement_priority``'s own ``parent: impact`` still
-          points at a type that remains iacs-only (not moved here): a
-          project using ``requirement_priority`` without also depending on
-          iacs won't have that parent resolve, same as before the move for
-          any such project.
     - file_info
 
 requirement:
@@ -61,11 +46,12 @@ requirement_priority:
           satisfied by the system design. Requirements should be traced to
           implementations.
 
-          Formerly named ``requirement``; renamed to free that name up for
-          the ((requirement))/((solution)) relation pair once requirements
-          and solutions could be expressed purely through relations. Still
-          the type to use for a scored/tagged requirement (priority, type,
-          schedule) rather than a relation to some other entity.
+          Use this (rather than the ((requirement))/((solution)) relation
+          pair) for a scored/tagged requirement (priority, type, schedule)
+          that isn't itself a relation to some other entity. Its own
+          ``parent: impact`` points at a type that remains iacs-only, so a
+          project depending on emc2p without also depending on iacs won't
+          have that parent resolve.
     - parent: impact
     - field:
           type:

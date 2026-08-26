@@ -234,7 +234,7 @@ emc2p_component:
               the most common components as nearly every entity should have a description.
               Flagged time_dimension on ``time`` so a later write updates the current
               description instead of accumulating an ever-growing history of near-duplicate
-              restatements — view_current (and export_manifest, which now defers to it for
+              restatements — view_current (and export_manifest, which defers to it for
               any time_dimension'd type) returns only the highest-time row per entity.
               Callers that genuinely want the full history (e.g. an audit trail of how a
               description changed over time) should use ``view``, not ``view_current``.
@@ -275,8 +275,8 @@ emc2p_component:
               hash:
                   description: >
                       Hash of the path, used for ID when brief.
-                      TODO: Do we actually need this? It was supposed to be a readable
-                      version of the path, but it's far from readable.
+                      TODO: is this field still needed? Meant to be a
+                      readable stand-in for the path, but isn't.
                   type: str
               alias:
                   description: >

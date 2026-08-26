@@ -273,12 +273,11 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
     attached to that entity (see ``csv_component_tables``), not a separate
     entity.
 
-    A prior version gave each CSV *row* its own entity (disambiguated with a
-    ``stem[row_index]`` name), but that meant every row's entity_key/alias
-    collided (all equal to the stem) and, once round-tripped through YAML
-    export/reimport, its synthetic ``[row_index]`` path segment came back as
-    a *real* container entity the original CSV load never had. Treating the
-    whole file as one entity avoids both problems.
+    Treating the whole file as one entity, rather than giving each row its
+    own entity, avoids two problems a per-row entity would create: every
+    row's entity_key/alias colliding (all equal to the stem), and a
+    synthetic ``[row_index]`` path segment coming back as a *real*
+    container entity once round-tripped through YAML export/reimport.
 
     Parameters
     ----------
@@ -414,9 +413,8 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
     -------
     ir.Table
         Columns: entity_id, entity_key, entity_path, filepath. Schema matches
-        the subset of ``keyvalue_store`` that ``entity_id_table`` used to
-        derive from, so it's a drop-in replacement that also covers entities
-        with no components.
+        the corresponding subset of ``keyvalue_store`` columns, so it's a
+        drop-in replacement that also covers entities with no components.
     """
     rows = []
     for file_id, entities in raw_entity_first_data.items():
@@ -592,9 +590,9 @@ def component_type_table(
 
     CSV-derived metadata comes from ``csv_component_tables`` (one row per CSV
     row, i.e. one row per ``"{stem}_comp"`` component instance) rather than
-    ``csv_spine`` (one row per *file*/entity) — the two are no longer the same
-    granularity now that a whole CSV file is a single entity with many
-    component instances attached.
+    ``csv_spine`` (one row per *file*/entity) — a whole CSV file is a single
+    entity with many component instances attached, so the two are
+    different granularities.
 
     Returns
     -------

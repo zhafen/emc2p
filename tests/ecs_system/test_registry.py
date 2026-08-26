@@ -796,10 +796,9 @@ class TestRegistryViewEntityDf:
         assert result["description"].iloc[0]["description.value"] == "The feed_cats task."
 
     def test_resolves_container_alias_despite_being_path_prefix_of_child(self, registry):
-        """Regression test: view_entity_df used to match `entity_id.alias`
-        by hand, which happened to disambiguate a container from its children too.
-
-        Delegating to get_entity_id must preserve that.
+        """view_entity_df must resolve a container entity correctly even
+        though its alias is a path prefix of its children's aliases;
+        get_entity_id is what disambiguates them.
         """
         result = registry.view_entity_df("feeding_system")
         assert result["description"].iloc[0]["description.value"] == "The feeding system."

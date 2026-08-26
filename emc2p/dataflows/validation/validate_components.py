@@ -478,11 +478,10 @@ def validation_results(
     """Use the schemas defined by the ((field)) component to validate and
     coerce the data in each component.
 
-    Includes component types that used to be excluded as "infrastructure"
-    (entity_id, parent, component_type, invalid_field, schema) — a
-    user-authored manifest can add invalid records to those tables too, so
-    they need the same validation/coercion pass as every user-defined
-    component type.
+    Includes infrastructure component types (entity_id, parent,
+    component_type, invalid_field, schema) too — a user-authored manifest
+    can add invalid records to those tables, so they need the same
+    validation/coercion pass as every user-defined component type.
 
     Materialise only the schema-defining rows (O(fields) records per component
     type), then delegate to ``_validate_component`` for the actual coercion and

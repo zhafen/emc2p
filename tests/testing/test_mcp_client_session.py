@@ -23,7 +23,7 @@ FAKE_MODEL = "deepseek/deepseek-chat"
 
 
 # Plain duck-typed doubles for litellm's response shape, not litellm's own
-# pydantic types -- see docs/manifest/history.yaml: project_history.mcp_client_session_added for why.
+# pydantic types -- keeps these tests from depending on litellm/pydantic.
 @dataclass
 class _FakeFunction:
     name: str

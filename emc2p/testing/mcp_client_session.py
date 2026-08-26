@@ -85,12 +85,12 @@ class McpClientSession:
     teardown all execute inside that *same* task, not one task per call
     (`mcp`'s stdio transport opens an anyio task group at connect time, and
     anyio requires a cancel scope to be exited from the same task it was
-    entered in -- confirmed live: closing it from a separate
-    `run_coroutine_threadsafe` task raises "cancel scope in a different
-    task"). A thread-safe queue feeds work requests into that one task; a
-    `concurrent.futures.Future` per request bridges each synchronous public
-    method call back to its result, so callers use this class exactly like
-    `HeadlessSession` -- no `async def test_...` needed.
+    entered in -- closing it from a separate `run_coroutine_threadsafe`
+    task raises "cancel scope in a different task"). A thread-safe queue
+    feeds work requests into that one task; a `concurrent.futures.Future`
+    per request bridges each synchronous public method call back to its
+    result, so callers use this class exactly like `HeadlessSession` --
+    no `async def test_...` needed.
     """
 
     def __init__(
