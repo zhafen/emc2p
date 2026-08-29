@@ -367,3 +367,16 @@ project_history:
               Registrar.from_manifest(["emc2p/builtins"]) double-loads
               every entity in that directory, since it's *always*
               auto-included regardless of what's passed as input dirs.
+    registry_builder_moved_here_from_duplicated_conftest:
+        - description: >
+              emc2p's and iacs's own tests/conftest.py files had drifted
+              into byte-identical duplicates of make_registry/the
+              pandas.testing.assert_allclose patch (both defining the
+              exact same code independently, story-simulator's own
+              conftest.py sharing nothing with either). Moved the
+              duplicated logic into emc2p.testing.registry_builder;
+              both repos' own tests/conftest.py now just re-export
+              `make_registry` from there rather than each keeping its
+              own copy -- every existing `from tests.conftest import
+              make_registry` call site across both suites keeps working
+              unchanged, since conftest.py still provides that name.
