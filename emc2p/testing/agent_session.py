@@ -54,6 +54,7 @@ def create_agent_session(
     turn_timeout: float = 240,
     session_timeout: float = 120,
     provider_options: dict[str, Any] | None = None,
+    max_tool_iterations: int | None = None,
 ) -> AgentSession:
     """Construct whichever session class `driver` names.
 
@@ -77,6 +78,10 @@ def create_agent_session(
             runtime, across every `send_turn` call combined.
         provider_options: Only meaningful for "copilot" today (see
             CopilotHeadlessProvider) -- ignored for "mcp_client".
+        max_tool_iterations: Only meaningful for "mcp_client" (passed
+            straight through to McpClientSession's own constructor) --
+            ignored for "claude"/"copilot", whose HeadlessSession has no
+            equivalent per-turn tool-call ceiling.
 
     Returns:
         A HeadlessSession or McpClientSession -- either way, something
@@ -93,5 +98,7 @@ def create_agent_session(
     if driver in ("claude", "copilot"):
         return HeadlessSession(provider=driver, provider_options=provider_options, **common)
     if driver == "mcp_client":
+        if max_tool_iterations is not None:
+            common["max_tool_iterations"] = max_tool_iterations
         return McpClientSession(**common)
     raise ValueError(f"Unknown driver {driver!r}; expected 'claude', 'copilot', or 'mcp_client'")

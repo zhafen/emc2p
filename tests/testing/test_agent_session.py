@@ -54,6 +54,22 @@ class TestCreateAgentSession:
         assert session.turn_timeout == 10
         assert session.session_timeout == 20
 
+    def test_max_tool_iterations_is_forwarded_for_mcp_client(self, tmp_path):
+        session = create_agent_session(
+            "mcp_client", mcp_config=tmp_path / ".mcp.json", allowed_tools=["mcp__foo__*"],
+            cwd=tmp_path, model="deepseek/deepseek-chat", max_tool_iterations=42,
+        )
+        assert session.max_tool_iterations == 42
+
+    def test_max_tool_iterations_is_ignored_for_claude(self, tmp_path):
+        # HeadlessSession has no such parameter at all -- passing it through
+        # unconditionally would raise a TypeError instead of just no-op'ing.
+        session = create_agent_session(
+            "claude", mcp_config=tmp_path / ".mcp.json", allowed_tools=["mcp__foo__*"],
+            cwd=tmp_path, model="claude-sonnet-5", max_tool_iterations=42,
+        )
+        assert isinstance(session, HeadlessSession)
+
     def test_unknown_driver_raises(self, tmp_path):
         with pytest.raises(ValueError, match="ollama"):
             create_agent_session(
