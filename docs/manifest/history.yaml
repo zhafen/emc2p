@@ -467,3 +467,18 @@ project_history:
               assert_registries_equal and the registry_builder module's
               own assert_allclose patch was deleted outright (no
               remaining caller needed it).
+    make_registry_moved_to_registry_from_component_rows:
+        - description: >
+              emc2p.testing.registry_builder.make_registry's actual
+              construction logic (wrap component-first row dicts into
+              ibis tables backed by a fresh DuckDB connection, then a
+              Registry) was never test-specific -- just an alternate
+              constructor that happened to only be called from test
+              setup. Moved it onto Registry itself as
+              Registry.from_component_rows, alongside the existing
+              to_database/from_database alternate constructors;
+              make_registry is now a one-line wrapper kept purely so the
+              many existing `from tests.conftest import make_registry` /
+              `from emc2p.testing.registry_builder import make_registry`
+              call sites across all three repos' test suites keep working
+              unchanged.

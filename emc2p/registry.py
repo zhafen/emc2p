@@ -308,6 +308,28 @@ class Registry:
         components = {name: con.table(name) for name in con.list_tables()}
         return cls(con, components)
 
+    @classmethod
+    def from_component_rows(cls, components: dict[str, list[dict]]) -> "Registry":
+        """Build a Registry directly from component-first row data.
+
+        Backed by a fresh in-memory DuckDB connection. Convenient for
+        hand-written data (e.g. test fixtures) -- not how production code
+        builds a Registry, which always goes through the Hamilton
+        load_manifest/registrar.update() pipeline instead.
+
+        Args:
+            components: Dict mapping component type names to lists of row
+                dicts. Each row dict should include "entity_id" plus any
+                component fields.
+        """
+        conn = ibis.duckdb.connect()
+        comp_tables = {}
+        for comp_type, rows in components.items():
+            df = pd.DataFrame(rows)
+            conn.create_table(comp_type, df)
+            comp_tables[comp_type] = conn.table(comp_type)
+        return cls(conn, comp_tables)
+
     def close(self) -> None:
         """Close the underlying database connection."""
         self._con.disconnect()

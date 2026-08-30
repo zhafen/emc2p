@@ -1,8 +1,13 @@
-"""Component-first Registry construction, shared by every downstream
-project's own test suite (this module was moved here specifically because
-emc2p's and iacs's own tests/conftest.py files had drifted into
-byte-identical duplicates of it -- see docs/manifest/history.yaml for that
-history).
+"""Backward-compatible re-export of Registry.from_component_rows.
+
+make_registry's actual construction logic now lives on Registry itself
+(it was never test-specific -- just an alternate constructor for
+component-first row data that happened to only be used by tests) -- see
+docs/manifest/history.yaml. Kept here as a thin wrapper (rather than
+deleted outright) so the many existing `from tests.conftest import
+make_registry` / `from emc2p.testing.registry_builder import
+make_registry` call sites across all three repos' test suites keep
+working unchanged.
 
 Used to also carry a lenient ``pandas.testing.assert_allclose`` monkeypatch
 for comparing round-tripped component tables. That patch masked a real
@@ -13,26 +18,9 @@ assert_components_equal``/``assert_registries_equal``, which compare every
 common column instead of just ``component_type``/``modifier``.
 """
 
-import pandas as pd
-import ibis
-
 from emc2p.registry import Registry
 
 
 def make_registry(components: dict[str, list[dict]]) -> Registry:
-    """Create a Registry from component-first data.
-
-    Args:
-        components: Dict mapping component type names to lists of row dicts.
-            Each row dict should include "entity_id" plus any component fields.
-
-    Returns:
-        A Registry backed by a DuckDB connection.
-    """
-    conn = ibis.duckdb.connect()
-    comp_tables = {}
-    for comp_type, rows in components.items():
-        df = pd.DataFrame(rows)
-        conn.create_table(comp_type, df)
-        comp_tables[comp_type] = conn.table(comp_type)
-    return Registry(conn, comp_tables)
+    """Create a Registry from component-first data. See Registry.from_component_rows."""
+    return Registry.from_component_rows(components)

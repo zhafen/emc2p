@@ -595,6 +595,24 @@ class TestRegistryDatabaseRoundTrip:
         )
 
 
+class TestRegistryFromComponentRows:
+    """Tests for building a Registry directly from component-first row data."""
+
+    def test_builds_a_registry_with_the_given_component_tables(self):
+        registry = Registry.from_component_rows({
+            "description": [{"entity_id": "e1", "value": "a thing"}],
+        })
+        df = registry.get("description").to_pandas()
+        assert df["value"].tolist() == ["a thing"]
+
+    def test_supports_multiple_component_types(self):
+        registry = Registry.from_component_rows({
+            "description": [{"entity_id": "e1", "value": "a thing"}],
+            "requirement": [{"entity_id": "e1"}],
+        })
+        assert set(registry.component_types) >= {"description", "requirement"}
+
+
 class TestRegistryDeclareSchema:
     """Tests for declare_schema and the get/view/view_current fallback it enables."""
 
