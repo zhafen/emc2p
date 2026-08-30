@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_human_validated.helpers import McpClientSession, _load_registrar
+from tests.test_human_validated.helpers import create_session
+from emc2p.registrar import Registrar
 from emc2p.testing.registry_checks import unexpected_components
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -45,15 +46,15 @@ def test_write_accuracy_given_assignment(tmp_path):
     """
     db_path = tmp_path / "test.duckdb"
 
-    with McpClientSession() as session:
-        print(f"McpClientSession trace: {session.trace_path}")
+    with create_session() as session:
+        print(f"session trace: {session.trace_path}")
         narration = session.send_turn(
             _WRITE_GIVEN_INSTRUCTION.format(
                 database_url=f"duckdb:///{db_path}", manifest_dir=str(STATUS_BOARD_SCENARIO_DIR)
             )
         )
 
-    r = _load_registrar(db_path, narration)
+    r = Registrar.load(f"duckdb:///{db_path}")
 
     assert r.get_current_value("status", "value", "widget_a") == "active", (
         f"widget_a was told its status is active -- narration: {narration!r}"

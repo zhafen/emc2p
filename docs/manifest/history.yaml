@@ -489,3 +489,34 @@ project_history:
               module" question the classmethod move set out to answer.
               story-simulator's own test suite never used make_registry,
               so it needed no changes.
+    own_test_suite_migrated_to_create_agent_session_load_registrar_dropped:
+        - description: >
+              emc2p's own tests/test_human_validated/helpers.py still
+              built sessions by subclassing emc2p.testing.
+              mcp_client_session.McpClientSession directly, fixing its
+              config to this repo's own .mcp.json/allowed-tools/cwd --
+              exactly the ad hoc pattern create_agent_session (added
+              earlier, see AgentSession/create_agent_session's own
+              module docstring) was meant to replace, but this repo's own
+              dogfooding test suite was never actually migrated onto it
+              when story-simulator's own helpers.py was (see
+              headless_and_mcp_client_session_unified_into_create_session
+              in story-simulator's own history.yaml). Replaced the
+              subclass with a create_session() wrapper around
+              create_agent_session("mcp_client", ...), matching that same
+              pattern -- still always the mcp_client driver (deliberately
+              not locked to a Claude-only headless CLI, per the
+              subclass's own prior docstring), just built through the
+              shared factory instead of duplicating its constructor by
+              hand.
+
+              Also dropped _load_registrar, a thin wrapper around
+              Registrar.load that only added an assert-file-exists check
+              (for a friendlier failure than DuckDB silently creating an
+              empty database file at a path nothing ever wrote to) ahead
+              of the one real call. Its only caller (test_write_accuracy.py)
+              now calls Registrar.load directly -- the existing method
+              already does the real work; the wrapper's only value was
+              the friendlier error message on the you-forgot-to-actually-
+              write-anything case, judged not worth a whole extra function
+              for.
