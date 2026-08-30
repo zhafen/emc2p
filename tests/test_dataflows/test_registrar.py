@@ -6,15 +6,15 @@ import pytest
 import pandas as pd
 import ibis
 
-from tests.conftest import make_registry
 from tests.test_dataflows.dags import dataflow, dataflow_b
 from emc2p.registrar import Registrar
+from emc2p.registry import Registry
 from emc2p.testing.expected_fixtures import assert_registries_equal
 from emc2p.utils import get_id
 
 
 def _sample_registry():
-    return make_registry(
+    return Registry.from_component_rows(
         {
             "description": [
                 {"entity_id": "e1", "value": "First entity"},

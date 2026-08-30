@@ -8,8 +8,8 @@ from emc2p.dataflows.derive.resolve_paths import (
 )
 import pandas as pd
 
+from emc2p.registry import Registry
 from emc2p.utils import dhash
-from tests.conftest import make_registry
 
 PARENT_PATH = "example.yaml:the_parent"
 CHILD_PATH = "example.yaml:the_parent.the_child"
@@ -77,7 +77,7 @@ def _resolve(registry):
 
 class TestComponentsWithResolvedPaths:
     def test_bare_requirement_defaults_to_parent(self):
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
             "component_type": _component_type_rows("requirement"),
@@ -96,7 +96,7 @@ class TestComponentsWithResolvedPaths:
         ``of:`` target) tag's value as ``""``, not ``None``; empty string
         must trigger the same implicit-parent fallback as an actual
         null."""
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
             "component_type": _component_type_rows("requirement"),
@@ -109,7 +109,7 @@ class TestComponentsWithResolvedPaths:
         assert df.set_index("entity_id").loc[CHILD_EID, "value_eid"] == PARENT_EID
 
     def test_bare_solution_defaults_to_parent(self):
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("solution"),
             "component_type": _component_type_rows("solution"),
@@ -122,7 +122,7 @@ class TestComponentsWithResolvedPaths:
         assert df.set_index("entity_id").loc[CHILD_EID, "value_eid"] == PARENT_EID
 
     def test_explicit_requirement_target_is_not_overridden(self):
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("requirement"),
             "component_type": _component_type_rows("requirement"),
@@ -137,7 +137,7 @@ class TestComponentsWithResolvedPaths:
         """Only requirement/solution get the implicit-parent fallback -- an
         unrelated entity_ref-typed component with an empty value should
         stay unresolved."""
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True),
             "field": _field_rows("calls"),
             "calls": [
@@ -151,7 +151,7 @@ class TestComponentsWithResolvedPaths:
     def test_explicit_dependence_target_resolves(self):
         """dependence works like requirement/solution's own explicit-target
         case: a real value_eid, resolved by entity_ref lookup."""
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True) + [
                 {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
             ],
@@ -168,7 +168,7 @@ class TestComponentsWithResolvedPaths:
         fallback -- there's no "candidate dependencies to choose among" the
         way there are candidate solutions to a requirement, so an empty
         value should stay unresolved rather than default to the parent."""
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True) + [
                 {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
             ],
@@ -185,7 +185,7 @@ class TestComponentsWithResolvedPaths:
         """A top-level entity (no parent) has nothing for
         parent_from_hierarchy to offer -- value_eid should stay unresolved,
         not raise."""
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": [
                 {"value": PARENT_EID, "path": PARENT_PATH, "entity_key": "the_parent"},
                 {"value": OTHER_EID, "path": OTHER_PATH, "entity_key": "something_else"},

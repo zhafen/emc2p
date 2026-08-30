@@ -13,6 +13,7 @@ with litellm's own call monkeypatched.
 import pytest
 
 from emc2p.registrar import Registrar
+from emc2p.registry import Registry
 from emc2p.similarity import (
     cosine_similarity,
     embed_with_litellm,
@@ -22,7 +23,6 @@ from emc2p.similarity import (
     pairwise_similarities,
     rank_by_similarity,
 )
-from tests.conftest import make_registry
 
 
 def _fake_embed(texts: list[str]) -> list[list[float]]:
@@ -94,7 +94,7 @@ class TestRankBySimilarity:
 
 class TestFindSimilarEntities:
     def _registry(self):
-        return make_registry({
+        return Registry.from_component_rows({
             "description": [
                 {"entity_id": "e1", "value": "feed the cat every morning"},
                 {"entity_id": "e2", "value": "change the car oil regularly"},
@@ -206,7 +206,7 @@ class TestFindDuplicateGroups:
 
 class TestFindDuplicateEntities:
     def _registry(self):
-        return make_registry({
+        return Registry.from_component_rows({
             "description": [
                 {"entity_id": "e1", "value": "feed the cat every morning"},
                 {"entity_id": "e2", "value": "feed the cat every morning"},

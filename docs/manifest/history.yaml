@@ -476,9 +476,16 @@ project_history:
               constructor that happened to only be called from test
               setup. Moved it onto Registry itself as
               Registry.from_component_rows, alongside the existing
-              to_database/from_database alternate constructors;
-              make_registry is now a one-line wrapper kept purely so the
-              many existing `from tests.conftest import make_registry` /
-              `from emc2p.testing.registry_builder import make_registry`
-              call sites across all three repos' test suites keep working
-              unchanged.
+              to_database/from_database alternate constructors. Initially
+              kept make_registry as a one-line backward-compatible
+              wrapper so existing call sites wouldn't need touching, but
+              then removed it entirely (emc2p.testing.registry_builder
+              module deleted outright) once every call site across emc2p
+              and iacs was updated to call Registry.from_component_rows
+              directly -- with the classmethod now the one real
+              construction path, keeping a parallel test-only wrapper
+              around it added a needless second name for the same thing
+              rather than removing the "why is this in a test fixture
+              module" question the classmethod move set out to answer.
+              story-simulator's own test suite never used make_registry,
+              so it needed no changes.
