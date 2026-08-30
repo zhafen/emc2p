@@ -520,3 +520,13 @@ project_history:
               the friendlier error message on the you-forgot-to-actually-
               write-anything case, judged not worth a whole extra function
               for.
+    test_human_validated_comments_and_docstrings_abbreviated:
+        - description: >
+              tests/test_human_validated/helpers.py and
+              test_write_accuracy.py carried the same sprawling
+              docstring style as story-simulator's own copy of this
+              package (see story-simulator's own history.yaml entry of
+              the same name) before both adopted a stricter,
+              human_validated-only convention: an inline comment is at
+              most two lines, and a docstring is a one-line summary
+              followed by an empty line and at most three more lines.

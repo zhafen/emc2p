@@ -1,17 +1,8 @@
-"""Shared infrastructure for live end-to-end tests that drive emc2p-mcp
-through a real MCP client.
+"""Shared infrastructure for live end-to-end tests driving emc2p-mcp via a real MCP client.
 
-`create_session` fixes `emc2p.testing.agent_session.create_agent_session`'s
-generic constructor to this repo's own `.mcp.json`/allowed-tools/cwd, the
-same way a downstream project's own test suite would (see
-story-simulator's own `tests/test_human_validated/helpers.py` for that
-pattern) -- this package is emc2p's own dogfooding of it, exercising
-`emc2p.mcp_server` directly rather than a downstream project's
-domain-specific wrapper around it. Always the "mcp_client" driver
-(litellm + a real MCP client), not create_agent_session's other drivers
-(claude/copilot's own headless CLI subprocess): this suite deliberately
-isn't locked to a Claude-only provider, so it works with any
-litellm-supported model -- DeepSeek by default (DEFAULT_LIVE_TEST_MODEL).
+`create_session` fixes create_agent_session's constructor to this repo's
+own .mcp.json -- emc2p's own dogfooding, exercising emc2p.mcp_server
+directly. Always the "mcp_client" driver; DeepSeek by default.
 """
 
 from pathlib import Path
