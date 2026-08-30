@@ -4,7 +4,7 @@ import ibis.expr.types as ir
 from hamilton.function_modifiers import extract_fields
 
 from ...registry import Registry
-from ...utils import candidate_entity_ids, dhash
+from ...utils import candidate_entity_ids, dhash, flagged_component_type_names
 
 
 INPUT_COMPONENT_TYPES = ["field", "entity_id"]
@@ -59,18 +59,7 @@ def implicit_parent_target_types(components: dict) -> set[str]:
     ``of:`` target) means "this entity is a requirement of its parent", per
     iacs.yaml's own implied_relationship_with_comp note.
     """
-    if "component_type" not in components:
-        return set()
-    ct = components["component_type"]
-    if "implicit_parent" not in ct.columns:
-        return set()
-    return set(
-        ct.filter(ct["implicit_parent"] == True)
-        .select("component_type")
-        .distinct()
-        .execute()["component_type"]
-        .tolist()
-    )
+    return flagged_component_type_names(components, "implicit_parent")
 
 
 @extract_fields(dict(parent=ir.Table))

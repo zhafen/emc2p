@@ -9,6 +9,7 @@ import ibis
 from tests.conftest import make_registry
 from tests.test_dataflows.dags import dataflow, dataflow_b
 from emc2p.registrar import Registrar
+from emc2p.testing.expected_fixtures import assert_registries_equal
 from emc2p.utils import get_id
 
 
@@ -164,10 +165,7 @@ class TestRegistrarUX:
 
         # Reload and check
         a2 = Registrar.from_manifest(output_dir)
-        pd.testing.assert_allclose(
-            a.view("component_type"),
-            a2.view("component_type"),
-        )
+        assert_registries_equal(a, a2)
 
 
 class TestSaveAndLoadDatabase:

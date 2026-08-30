@@ -1,55 +1,22 @@
-"""Component-first Registry construction plus a lenient pandas/ibis table
-comparison, shared by every downstream project's own test suite (this
-module was moved here specifically because emc2p's and iacs's own
-tests/conftest.py files had drifted into byte-identical duplicates of it --
-see docs/manifest/history.yaml for that history).
+"""Component-first Registry construction, shared by every downstream
+project's own test suite (this module was moved here specifically because
+emc2p's and iacs's own tests/conftest.py files had drifted into
+byte-identical duplicates of it -- see docs/manifest/history.yaml for that
+history).
+
+Used to also carry a lenient ``pandas.testing.assert_allclose`` monkeypatch
+for comparing round-tripped component tables. That patch masked a real
+export/reload fidelity gap (see docs/manifest/history.yaml:
+project_history.assert_allclose_patch_replaced_by_assert_components_equal)
+and has been replaced by ``emc2p.testing.expected_fixtures.
+assert_components_equal``/``assert_registries_equal``, which compare every
+common column instead of just ``component_type``/``modifier``.
 """
 
-import ibis
 import pandas as pd
-import pandas.testing as _pd_testing
+import ibis
 
 from emc2p.registry import Registry
-
-
-def _assert_allclose(left, right, **kwargs):
-    """Compare two tables leniently, handling ibis Tables and DataFrames.
-
-    Converts ibis Tables to DataFrames, then compares structural content
-    (entity_alias, component_type, modifier) after sorting.  entity_id is
-    intentionally excluded because hashes differ when filepaths change after
-    a round-trip export/import.
-    """
-    for obj in (left, right):
-        if hasattr(obj, "execute"):
-            pass  # will convert below
-    left = left.execute() if hasattr(left, "execute") else left
-    right = right.execute() if hasattr(right, "execute") else right
-
-    if not isinstance(left, pd.DataFrame) or not isinstance(right, pd.DataFrame):
-        import numpy as np
-        np.testing.assert_allclose(left, right, **kwargs)
-        return
-
-    compare_cols = [
-        c for c in ("component_type", "modifier")
-        if c in left.columns and c in right.columns
-    ]
-    if not compare_cols:
-        return
-
-    left_s = (
-        left[compare_cols].drop_duplicates()
-        .fillna("").sort_values(compare_cols).reset_index(drop=True)
-    )
-    right_s = (
-        right[compare_cols].drop_duplicates()
-        .fillna("").sort_values(compare_cols).reset_index(drop=True)
-    )
-    pd.testing.assert_frame_equal(left_s, right_s, check_dtype=False)
-
-
-_pd_testing.assert_allclose = _assert_allclose
 
 
 def make_registry(components: dict[str, list[dict]]) -> Registry:

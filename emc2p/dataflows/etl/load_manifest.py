@@ -613,10 +613,24 @@ def component_type_table(
     derived_set: set[str] = set()
     skip_set: set[str] = set()
     implicit_parent_set: set[str] = set()
+    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the flags
+    # a given "- component_type: {...}" tag instance declares on itself.
+    # Needed so that a tag's own meta row (below) can be set from what THAT
+    # tag actually declared, instead of the isin() broadcast further down --
+    # which answers "is this row an instance of a type in {derived,
+    # skip,implicit_parent}_set", a question a tag-declaration row itself
+    # would also match whenever the literal type name "component_type" is
+    # itself a member of one of these sets (e.g. component_type's own
+    # skip_on_export: true declaration), incorrectly carrying that flag
+    # onto every OTHER entity's own component_type tag row too.
+    own_flags: dict[tuple, dict[str, bool]] = {}
     for _, row in ct_data.iterrows():
         eid = str(row["entity_id"])
+        cidx = row["component_index"]
         field = str(row["field"])
         val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
+        if field in ("derived", "skip_on_export", "implicit_parent"):
+            own_flags.setdefault((eid, cidx), {})[field] = val
         type_name = entity_keys.get(eid, "")
         if not type_name:
             continue
@@ -631,6 +645,16 @@ def component_type_table(
     meta_df["derived"] = meta_df["component_type"].isin(derived_set)
     meta_df["skip_on_export"] = meta_df["component_type"].isin(skip_set)
     meta_df["implicit_parent"] = meta_df["component_type"].isin(implicit_parent_set)
+
+    is_tag_row = meta_df["component_type"] == "component_type"
+    for flag in ("derived", "skip_on_export", "implicit_parent"):
+        meta_df.loc[is_tag_row, flag] = meta_df.loc[is_tag_row].apply(
+            lambda r, _flag=flag: own_flags.get(
+                (str(r["entity_id"]), r["component_index"]), {}
+            ).get(_flag, False),
+            axis=1,
+        )
+
     meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
     yaml_ct = ibis.memtable(meta_df)
 

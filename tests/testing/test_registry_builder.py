@@ -1,10 +1,4 @@
-"""Unit tests for emc2p.testing.registry_builder.make_registry.
-
-The pandas.testing.assert_allclose monkeypatch this module applies at
-import time is exercised implicitly across this whole suite (any test
-using pandas.testing.assert_allclose on a Registry-derived table) rather
-than tested directly here.
-"""
+"""Unit tests for emc2p.testing.registry_builder.make_registry."""
 
 from emc2p.testing.registry_builder import make_registry
 

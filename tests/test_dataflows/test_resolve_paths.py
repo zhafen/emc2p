@@ -45,9 +45,19 @@ def _component_type_rows(*type_names):
     """Rows for the component_type table flagging each named type
     implicit_parent=True, matching requirement/solution's own
     ``- component_type: {implicit_parent: true}`` declaration in
-    auditing.yaml."""
+    auditing.yaml.
+
+    The row's own ``component_type`` column is always the literal string
+    "component_type" here, matching real load_manifest.py output: it's an
+    instance of the component_type component type itself (the schema
+    entity's ``- component_type: {...}`` tag), not an instance of the
+    flagged type. ``implicit_parent_target_types`` resolves the flagged
+    type's real name via the owning entity's own entity_key in the
+    entity_id table (see ``_entity_id_rows``'s ``def_{name}`` -> ``{name}``
+    mapping), not from this column.
+    """
     return [
-        {"entity_id": f"def_{name}", "component_index": 0, "component_type": name, "implicit_parent": True}
+        {"entity_id": f"def_{name}", "component_index": 0, "component_type": "component_type", "implicit_parent": True}
         for name in type_names
     ]
 

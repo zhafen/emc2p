@@ -6,11 +6,12 @@ DAG structure (dependency order):
         └── components (also extracts entity_id)
                 ├── entity_hierarchy (depends on components + entity_id)
                 │       └── non_hierarchy_parents (depends on components + entity_hierarchy + entity_id)
-                │               └── components_for_export
+                │               └── components_for_export (also depends on non_inherited_fields)
                 │                       └── entity_first_data (depends on components_for_export + entity_id)
                 │                               └── condensed_entity_first_data
                 │                                       └── hierarchical_entity_first_data
                 │                                       └── exported_manifest_filepaths
+                ├── non_inherited_fields (depends on components)
                 └── entity_id (extracted via @extract_fields)
 
     hierarchical_entity_first_data also depends on entity_hierarchy and entity_id.
@@ -22,9 +23,17 @@ first explicit parent by component_index is used).
 The non_hierarchy_parents node collects parent rows NOT used as the hierarchy
 parent so they can be round-tripped as explicit ``parent:`` YAML entries.
 
-The components_for_export node replaces the parent table with non-hierarchy
-parents only (removing hierarchy-implied parents that would be reconstructed
-from nesting on reload).
+The non_inherited_fields node is the same idea applied to ``field``:
+inherit_components.derived_field overwrites ``field`` with the
+inheritance-resolved set (marking each row ``is_inherited``), and only the
+non-inherited rows should round-trip -- an inherited row baked into the
+child's own exported YAML would be redundant and no longer overridable by
+a future ancestor edit.
+
+The components_for_export node replaces the parent/field tables with
+non-hierarchy-parents-only/non-inherited-fields-only (removing
+hierarchy-implied parents and inherited fields, both reconstructed on
+reload from nesting/inherit_components respectively).
 
 entity_first_data serialises all component tables to {entity_id: [(idx, entry)]}
 (flat, keyed by entity_id).  condensed_entity_first_data collapses single-field
@@ -43,6 +52,7 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from ...registry import Registry
+from ...utils import flagged_component_type_names
 from .load_manifest import builtins_tags
 
 
@@ -106,39 +116,17 @@ def components(registry: Registry, collapse_time_dimension: bool = True) -> dict
     return result
 
 
-_METADATA_COLS = {"entity_id", "component_index", "modifier", "is_primary"}
+_METADATA_COLS = {"entity_id", "component_index", "modifier", "is_primary", "is_inherited"}
 
 
 def _derived_comp_types(components: dict) -> set[str]:
     """Return component type names marked derived=True in the component_type table."""
-    if "component_type" not in components:
-        return set()
-    ct = components["component_type"]
-    if "derived" not in ct.columns:
-        return set()
-    return set(
-        ct.filter(ct["derived"] == True)
-        .select("component_type")
-        .distinct()
-        .execute()["component_type"]
-        .tolist()
-    )
+    return flagged_component_type_names(components, "derived")
 
 
 def _skip_on_export_types(components: dict) -> set[str]:
     """Return component type names marked skip_on_export=True in the component_type table."""
-    if "component_type" not in components:
-        return set()
-    ct = components["component_type"]
-    if "skip_on_export" not in ct.columns:
-        return set()
-    return set(
-        ct.filter(ct["skip_on_export"] == True)
-        .select("component_type")
-        .distinct()
-        .execute()["component_type"]
-        .tolist()
-    )
+    return flagged_component_type_names(components, "skip_on_export")
 
 
 def entity_hierarchy(parent: ir.Table, entity_id: ir.Table) -> dict[str, str | None]:
@@ -274,13 +262,47 @@ def non_hierarchy_parents(
     return ibis.memtable(result_df)
 
 
+def non_inherited_fields(components: dict) -> ir.Table:
+    """Return ``field`` rows NOT resolved onto their entity via inheritance.
+
+    ``inherit_components.derived_field`` overwrites the registry's ``field``
+    table with the inheritance-resolved set (see that function's own
+    docstring), marking each row ``is_inherited`` -- True for one pulled in
+    from an ancestor, False for the entity's own direct declaration. Only
+    the latter round-trips through export: an inherited row would otherwise
+    get baked into the child entity's own exported YAML as if newly
+    declared there, and re-derived a second time (redundantly, and no
+    longer overridable by a future ancestor edit) on reload -- the same
+    problem ``non_hierarchy_parents`` solves for ``parent``.
+
+    Parameters
+    ----------
+    components : dict
+        Dict mapping component type names to ibis Tables.
+
+    Returns
+    -------
+    ir.Table
+        The ``field`` table (empty if there is none) with any
+        ``is_inherited`` rows dropped.
+    """
+    if "field" not in components:
+        return ibis.memtable(pd.DataFrame())
+    field_df = components["field"].execute()
+    if "is_inherited" not in field_df.columns:
+        return components["field"]
+    return ibis.memtable(field_df[field_df["is_inherited"] != True])  # noqa: E712
+
+
 def components_for_export(
     components: dict,
     non_hierarchy_parents: ir.Table,
+    non_inherited_fields: ir.Table,
 ) -> dict:
-    """Return updated components dict with parent table replaced by non-hierarchy-only parents.
+    """Return updated components dict with parent/field replaced by their non-derived-only rows.
 
-    If non_hierarchy_parents is empty, the parent key is removed from components.
+    If non_hierarchy_parents/non_inherited_fields is empty, the
+    corresponding key is removed from components entirely.
 
     Parameters
     ----------
@@ -289,6 +311,9 @@ def components_for_export(
     non_hierarchy_parents : ir.Table
         Parent rows not used as hierarchy parents, as returned by
         ``non_hierarchy_parents``.
+    non_inherited_fields : ir.Table
+        Field rows not resolved via inheritance, as returned by
+        ``non_inherited_fields``.
 
     Returns
     -------
@@ -301,6 +326,12 @@ def components_for_export(
         result.pop("parent", None)
     else:
         result["parent"] = non_hierarchy_parents
+
+    nif_df = non_inherited_fields.execute()
+    if nif_df.empty:
+        result.pop("field", None)
+    else:
+        result["field"] = non_inherited_fields
 
     return result
 

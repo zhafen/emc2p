@@ -199,9 +199,19 @@ data_structure:
                   type: bool
                   default: false
                   nullable: false
-        - todo: >
-              We are going to track derived vs source at a schema level, but we can also
-              record this at a field level.
+              is_inherited:
+                  description: >
+                      Whether this ((field)) row was resolved onto its entity via
+                      inheritance from a ((parent)) entity's own field of the same
+                      name, rather than declared directly on this entity. Set by
+                      emc2p.dataflows.derive.inherit_components' own derived_field
+                      step, the same way ((parent)).is_primary marks which parent
+                      row is hierarchy-implied -- so export_manifest can skip
+                      re-emitting an inherited field as if it were this entity's
+                      own, the same way it already skips a hierarchy-implied
+                      parent.
+                  type: bool
+                  default: false
         - todo: >
               We should check if we are modifying any columns in-place anywhere, other
               than filling in null values, and stop that.
@@ -328,3 +338,28 @@ emc2p_component:
               ETL table used for schema validation and entity_ref resolution.
         - component_type:
               skip_on_export: true
+
+    invalid_field:
+        - description: >
+              Diagnostic output recording a component field's value that
+              failed its own schema's validation (range, nullable, type, ...).
+              Computed by emc2p.dataflows.validation.validate_components, not
+              sourced from user YAML -- never round-tripped through manifest
+              export, since re-declaring it would bake a stale validation
+              result into the source and have it re-flagged as a fresh
+              "invalid_field" entry on the very next reload.
+        - component_type:
+              skip_on_export: true
+        - field:
+              component_type:
+                  description: The component type whose field failed validation.
+                  type: str
+              field:
+                  description: The name of the field that failed.
+                  type: str
+              value:
+                  description: The value that failed validation.
+              error_type:
+                  description: >
+                      Which constraint was violated (range, nullable, type, ...).
+                  type: str

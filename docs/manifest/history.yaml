@@ -380,3 +380,90 @@ project_history:
               own copy -- every existing `from tests.conftest import
               make_registry` call site across both suites keeps working
               unchanged, since conftest.py still provides that name.
+    assert_allclose_patch_replaced_by_assert_components_equal:
+        - description: >
+              registry_builder's own pandas.testing.assert_allclose patch
+              only compared component_type/modifier columns after
+              deduplicating rows -- lenient enough to silently mask a
+              real row-count mismatch in test_registrar.py's own
+              test_export_manifest (a load -> export -> reload round
+              trip). Swapping that test to the stricter
+              emc2p.testing.expected_fixtures.assert_registries_equal
+              (which compares every common column, per component type)
+              surfaced three genuine export/reload fidelity bugs, found
+              and fixed together:
+
+              1. ((field)) inheritance wasn't round-tripping:
+              inherit_components.derived_field overwrites the whole
+              field table with the inheritance-resolved set (own fields
+              plus every ancestor's), but had no discriminator between
+              "this entity's own declaration" and "inherited from a
+              parent" -- so export_manifest baked every inherited field
+              into the child's own exported YAML as if newly declared
+              there. Fixed by adding a field.is_inherited bool (mirroring
+              parent.is_primary), set by derived_field, and a new
+              non_inherited_fields export node (mirroring
+              non_hierarchy_parents) that drops is_inherited rows before
+              export.
+
+              2. component_type_table (load_manifest.py) computed its
+              derived/skip_on_export/implicit_parent boolean columns by
+              checking whether a row's own component_type value was a
+              member of the flagged-type-names set -- correct for actual
+              data instances of a flagged type (e.g. a real ((requirement))
+              component correctly inherits requirement's own
+              implicit_parent flag this way), but wrong for the "-
+              component_type: {...}" tag row itself: that row's own
+              component_type column is always the literal string
+              "component_type" (it's an instance of the component_type
+              component type, not of the type it's flagging). Since the
+              literal type name "component_type" is itself a legitimate
+              member of the skip_on_export set (the component_type
+              schema entity flags itself skip_on_export: true so its own
+              tag doesn't round-trip), every OTHER schema entity's own
+              "- component_type: {...}" tag row was incorrectly inheriting
+              that same skip_on_export=True, purely by sharing the same
+              literal component_type value -- e.g. requirement/solution's
+              own tag rows (which only declare implicit_parent: true)
+              showed up as skip_on_export=True too. Fixed by tracking each
+              tag instance's own declared flags separately (keyed by its
+              own entity_id/component_index) and overriding the
+              broadcast-computed columns for tag rows specifically with
+              that instance's own values, instead of the isin() broadcast.
+
+              3. _derived_comp_types/_skip_on_export_types
+              (export_manifest.py) and implicit_parent_target_types
+              (resolve_paths.py) all resolved a flagged type's name by
+              reading the flagged row's own component_type column --
+              which, for a schema entity's "- component_type: {...}" tag
+              row, is always the literal "component_type", not the
+              flagged type's real name (that comes from the *owning*
+              entity's own entity_key, joined via the entity_id table).
+              This meant entity_id/same_as/derived_field/invalid_field
+              (types with no other real data instances anywhere in a
+              manifest to coincidentally carry the right component_type
+              value) were never actually recognized as skip_on_export,
+              silently leaking into exported YAML -- confirmed via
+              invalid_field (a pure validation-diagnostic table, newly
+              given its own builtins.yaml schema entity with
+              skip_on_export: true as part of this same fix) literally
+              appearing as `- invalid_field: {...}` entries in exported
+              manifests. implicit_parent_target_types shared the exact
+              same bug but only "worked" by coincidence wherever a real
+              requirement/solution data instance already existed in the
+              loaded manifest to supply the right value -- already merged
+              into PR #9 with green CI, whose own tests never caught this
+              because test_resolve_paths.py's _component_type_rows helper
+              built unrealistic synthetic rows (component_type set
+              directly to the flagged name) instead of matching real
+              load_manifest.py output. Fixed by adding
+              emc2p.utils.flagged_component_type_names, a shared helper
+              that resolves the flagged type's name via the entity_id
+              join rather than the tag row's own component_type column,
+              used by all three call sites; fixed the test fixture to
+              match real data shape.
+
+              With all three fixed, test_export_manifest was swapped to
+              assert_registries_equal and the registry_builder module's
+              own assert_allclose patch was deleted outright (no
+              remaining caller needed it).

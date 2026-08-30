@@ -30,6 +30,49 @@ def get_id(filepath: str, path: str) -> str:
     return dhash(f"{filepath}:{path}")
 
 
+def flagged_component_type_names(components: dict, flag_column: str) -> set[str]:
+    """Return names of component types whose own schema entity declares
+    ``<flag_column>: true`` on a ``- component_type: {...}`` tag (e.g.
+    ``entity_id``'s own ``skip_on_export: true``, or ``requirement``'s own
+    ``implicit_parent: true`` in auditing.yaml).
+
+    A component type's schema entity marks itself by owning a
+    ``- component_type: {<flag_column>: true}`` tag component. In the
+    ``component_type`` meta table, that tag's own row always has
+    ``component_type == "component_type"`` -- it is an instance of the
+    ``component_type`` component type itself, not of the type it flags --
+    so the flagged type's real name is NOT that row's own ``component_type``
+    column; it's the owning entity's own ``entity_key``, found by joining
+    the row's ``entity_id`` against the ``entity_id`` table.
+
+    Parameters
+    ----------
+    components : dict
+        Dict mapping component type names to ibis Tables (or DataFrames),
+        as found on a Registry/registrar's ``_components`` or an
+        equivalent ``components`` dict. Must include ``"component_type"``
+        and ``"entity_id"`` to return anything.
+    flag_column : str
+        The boolean column on ``component_type`` to filter by, e.g.
+        ``"skip_on_export"``, ``"derived"``, ``"implicit_parent"``.
+    """
+    if "component_type" not in components or "entity_id" not in components:
+        return set()
+    ct = components["component_type"]
+    ct_df = ct.execute() if hasattr(ct, "execute") else ct
+    if flag_column not in ct_df.columns:
+        return set()
+    flagged = ct_df[
+        (ct_df["component_type"] == "component_type") & (ct_df[flag_column] == True)  # noqa: E712
+    ]
+    if flagged.empty:
+        return set()
+    entity_id_table = components["entity_id"]
+    entity_id_df = entity_id_table.execute() if hasattr(entity_id_table, "execute") else entity_id_table
+    id_to_key = entity_id_df.set_index("value")["entity_key"].to_dict()
+    return {id_to_key[eid] for eid in flagged["entity_id"] if eid in id_to_key}
+
+
 def candidate_entity_ids(user_path: str, entity_id_table: pd.DataFrame) -> list[str]:
     """Return the entity ID(s) `user_path` identifies.
 

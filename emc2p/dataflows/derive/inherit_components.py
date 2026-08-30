@@ -24,7 +24,12 @@ def derived_field(field: ir.Table, parent: ir.Table) -> ir.Table:
     ancestor's definition of a field with the same name (``value`` column).
     The output has the same columns as ``field`` but one row per
     ``(entity_id, field_name)`` pair, where ``entity_id`` is the entity that
-    *has* the field (directly or through inheritance).
+    *has* the field (directly or through inheritance), plus an
+    ``is_inherited`` bool (True for a row pulled in from an ancestor, False
+    for the entity's own direct declaration) -- the same discriminator role
+    ``parent``'s own ``is_primary`` plays for ``resolve_paths``'s hierarchy-
+    derived parent row, letting ``export_manifest`` skip re-emitting an
+    inherited field as if it were newly declared on this entity.
 
     Parameters
     ----------
@@ -89,10 +94,10 @@ def derived_field(field: ir.Table, parent: ir.Table) -> ir.Table:
 
         for fname, frow in resolve_fields(entity_id).items():
             if fname in own_field_names:
-                result_rows.append({**frow, "entity_id": entity_id})
+                result_rows.append({**frow, "entity_id": entity_id, "is_inherited": False})
             else:
                 result_rows.append(
-                    {**frow, "entity_id": entity_id, "component_index": next_index}
+                    {**frow, "entity_id": entity_id, "component_index": next_index, "is_inherited": True}
                 )
                 next_index += 1
 
