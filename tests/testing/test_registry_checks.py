@@ -11,8 +11,14 @@ including against a real Postgres-backed registry, where row order isn't
 guaranteed to match write order.
 """
 
+import pytest
+
 from emc2p.registrar import Registrar
 from emc2p.testing.registry_checks import write_time
+
+# Both tests here synthesize a large number of out-of-order writes -- each
+# individually takes several seconds.
+pytestmark = pytest.mark.slow
 
 _SOURCE_KEY = "session"
 

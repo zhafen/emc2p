@@ -1,8 +1,14 @@
 """Tests for the export_manifest dataflow."""
 
 import yaml
+import pytest
 
 from emc2p.registrar import Registrar
+
+# Every test here loads a real manifest via Registrar.from_manifest -- the
+# Hamilton driver construction that goes through dominates regardless of
+# manifest size (see pyproject.toml's own `slow` marker docstring).
+pytestmark = pytest.mark.slow
 
 
 class TestExportManifestSplitsByFile:

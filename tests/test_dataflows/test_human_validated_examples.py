@@ -28,6 +28,11 @@ EXAMPLES_DIR = ROOT / "examples"
 EXPECTED_DIR = ROOT / "tests" / "test_dataflows" / "expected"
 DATAFLOW_MODULE_PREFIXES = ("emc2p.dataflows.",)
 
+# Every case here loads a real example manifest end-to-end -- the Hamilton
+# driver construction that goes through dominates regardless of manifest
+# size (see pyproject.toml's own `slow` marker docstring).
+pytestmark = pytest.mark.slow
+
 
 @pytest.mark.parametrize("example_dir", example_dirs(EXAMPLES_DIR))
 def test_end_to_end(example_dir: Path, tmp_path: Path):
