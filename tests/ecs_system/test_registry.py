@@ -497,6 +497,63 @@ class TestRegistryViewCurrent:
         assert len(df) == 2
 
 
+class TestRegistrySafeView:
+    """Tests for safe_view()/safe_view_current(), the KeyError-safe view wrappers."""
+
+    @pytest.fixture
+    def scd_registry(self):
+        """A registry with a "status_reading" type whose "as_of" field is time_dimension."""
+        conn = ibis.duckdb.connect()
+        conn.create_table(
+            "entity_id",
+            {"value": ["def1", "e1"], "alias": ["status_reading", "e1"],
+             "path": ["test:status_reading", "test:e1"],
+             "entity_key": ["status_reading", "e1"], "filepath": ["test", "test"]},
+        )
+        conn.create_table(
+            "field",
+            {"entity_id": ["def1", "def1"], "value": ["as_of", "status"],
+             "time_dimension": [True, False]},
+        )
+        conn.create_table(
+            "status_reading",
+            {"entity_id": ["e1"], "component_index": [0],
+             "modifier": pd.array([None], dtype=pd.StringDtype()),
+             "as_of": ["2024-01-01"], "status": ["open"]},
+        )
+        components = {
+            "entity_id": conn.table("entity_id"),
+            "field": conn.table("field"),
+            "status_reading": conn.table("status_reading"),
+        }
+        return Registry(conn, components)
+
+    def test_safe_view_returns_none_for_unknown_component_type(self, scd_registry):
+        assert scd_registry.safe_view("nonexistent") is None
+
+    def test_safe_view_current_returns_none_for_unknown_component_type(self, scd_registry):
+        assert scd_registry.safe_view_current("nonexistent") is None
+
+    def test_safe_view_matches_view_for_known_component_type(self, scd_registry):
+        df = scd_registry.safe_view("status_reading")
+        assert df is not None
+        assert sorted(df["entity_id"]) == ["e1"]
+
+    def test_safe_view_current_matches_view_current_for_known_component_type(self, scd_registry):
+        df = scd_registry.safe_view_current("status_reading")
+        assert df is not None
+        assert df.iloc[0]["status_reading.status"] == "open"
+
+    def test_safe_view_returns_empty_dataframe_not_none_for_declared_but_dataless_type(self, scd_registry):
+        schema = ibis.schema(
+            {"entity_id": "string", "component_index": "int64", "modifier": "string", "value": "string"}
+        )
+        scd_registry.declare_schema("empty_type", schema)
+        df = scd_registry.safe_view("empty_type")
+        assert df is not None
+        assert df.empty
+
+
 class TestGetCurrentValue:
     """Tests for get_current_value(), the single-value convenience over view_current()."""
 

@@ -606,3 +606,13 @@ class TestViewProxies:
         r = self._registrar()
         entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
         assert r.get_entity_id(entity_id) == r.registry.get_entity_id(entity_id)
+
+    def test_safe_view_matches_registry_safe_view(self):
+        r = self._registrar()
+        pd.testing.assert_frame_equal(r.safe_view("description"), r.registry.safe_view("description"))
+
+    def test_safe_view_current_matches_registry_safe_view_current(self):
+        r = self._registrar()
+        pd.testing.assert_frame_equal(
+            r.safe_view_current("description"), r.registry.safe_view_current("description")
+        )

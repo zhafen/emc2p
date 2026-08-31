@@ -530,3 +530,29 @@ project_history:
               human_validated-only convention: an inline comment is at
               most two lines, and a docstring is a one-line summary
               followed by an empty line and at most three more lines.
+    safe_view_and_safe_view_current_added_to_registry:
+        - description: >
+              story_simulator/core.py had its own safe_view/
+              safe_view_current free functions -- KeyError-safe wrappers
+              around Registrar.view/view_current for reading a component
+              type that might never have been written to yet (event_state
+              before any event resolves, world_clock before anything's
+              popped). Neither function contained any story-simulator-
+              specific logic; they operated purely on Registrar's own
+              public interface, and get_current_value already carried the
+              identical try/except KeyError pattern for the single-value
+              case. Added Registry.safe_view/safe_view_current (with
+              Registrar property forwarding, matching view/view_current's
+              own pattern) so the KeyError-safety lives in one place;
+              get_current_value now calls safe_view_current internally
+              instead of duplicating its own try/except. Simplified one
+              behavior in the move: the downstream version's upfront
+              `component_type in registrar.registry.component_types`
+              check treated a declared-but-dataless component type the
+              same as a genuinely unknown one (both returned None) --
+              safe_view/safe_view_current now return an empty DataFrame
+              for the former and reserve None for the latter, since
+              nothing at either call site actually depended on
+              collapsing that distinction (each already treated an empty
+              DataFrame and None interchangeably, or checked `.empty`
+              alongside `is None` already).

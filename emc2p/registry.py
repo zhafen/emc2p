@@ -433,6 +433,33 @@ class Registry:
         """
         return self._view(component_type, self._current_table, aliases)
 
+    def safe_view(
+        self, component_type: str | list[str], aliases: str | list[str] | None = None
+    ) -> pd.DataFrame | None:
+        """Like `view`, but returns None instead of raising for an unknown component type.
+
+        A component type that's declared (see `declare_schema`) but has no
+        data yet still comes back as an empty DataFrame, not None -- only a
+        component type unknown to the registry entirely is safed away.
+
+        Args:
+            component_type: Same as `view`.
+            aliases: Same as `view`.
+        """
+        try:
+            return self.view(component_type, aliases).execute()
+        except KeyError:
+            return None
+
+    def safe_view_current(
+        self, component_type: str | list[str], aliases: str | list[str] | None = None
+    ) -> pd.DataFrame | None:
+        """Like `safe_view`, but resolves each field's current row per entity (see `view_current`)."""
+        try:
+            return self.view_current(component_type, aliases).execute()
+        except KeyError:
+            return None
+
     def get_current_value(self, component_type: str, field: str = "value", alias: str | None = None) -> Any:
         """The current `component_type.field` value for one entity, or None.
 
@@ -453,11 +480,8 @@ class Registry:
         Returns:
             The current value, or None if nothing is recorded yet.
         """
-        try:
-            df = self.view_current(f"{component_type}.{field}", aliases=alias).execute()
-        except KeyError:
-            return None
-        if df.empty:
+        df = self.safe_view_current(f"{component_type}.{field}", aliases=alias)
+        if df is None or df.empty:
             return None
         return df.iloc[-1][f"{component_type}.{field}"]
 
