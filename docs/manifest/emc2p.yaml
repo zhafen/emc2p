@@ -50,6 +50,7 @@ getter_api_design:
             - requirement_priority:
                   type: quality
                   value: 0.5
+            - requirement
 
         document_the_implicit_get_vs_view_rule:
             - description: >
@@ -76,6 +77,10 @@ getter_api_design:
                   note: >
                       Still relies on a reader finding and reading that
                       one docstring paragraph, not the name alone.
+            - pro: Zero migration cost -- no call sites change.
+            - con: >
+                  Still relies on a reader finding and reading the
+                  docstring paragraph, not the name alone.
 
         rename_to_include_safe_prefix:
             - description: >
@@ -97,6 +102,11 @@ getter_api_design:
                   note: >
                       Redundant given get_* never has a raising sibling
                       to distinguish itself from in the first place.
+            - pro: Makes the never-raises contract explicit in the name itself.
+            - con: >
+                  Every call site (3+ in story-simulator alone) needs
+                  updating for no new information, since get_* never
+                  had a raising sibling to distinguish from.
 
     naming_axis:
         - consideration:
@@ -124,6 +134,7 @@ getter_api_design:
             - requirement_priority:
                   type: quality
                   value: 0.6
+            - requirement
 
         add_get_current_values_method:
             - description: >
@@ -156,6 +167,11 @@ getter_api_design:
                   value: api_surface_growth
                   rating: -0.3
                   note: One more method on an already-large class.
+            - pro: Return type is always a dict regardless of alias count -- no boolean trap.
+            - con: >
+                  Goes against entt's own documented idiom of iterating
+                  the view yourself rather than adding a batch-get
+                  helper.
 
         overload_get_current_value_on_list_input:
             - description: >
@@ -187,6 +203,11 @@ getter_api_design:
                   value: api_surface_growth
                   rating: 0.5
                   note: No new method name at all.
+            - pro: No new method name needed at all.
+            - con: >
+                  A single-element list returns a different type than
+                  the bare string does -- the exact boolean-trap failure
+                  mode.
 
         extend_view_with_safe_flag:
             - description: >
@@ -219,6 +240,11 @@ getter_api_design:
                   value: api_surface_growth
                   rating: 0.4
                   note: No new method name; already superseded by the separate safe_view/safe_view_current methods actually shipped.
+            - pro: No new method name; reuses the existing view/view_current entry points.
+            - con: >
+                  safe=True would have to change the return type from
+                  ibis.Table to pd.DataFrame | None -- the same boolean
+                  trap one level up.
 
         no_batch_helper_iterate_view_yourself:
             - description: >
@@ -247,6 +273,13 @@ getter_api_design:
                   value: api_surface_growth
                   rating: 0.9
                   note: Zero new surface.
+            - pro: >
+                  Directly matches entt's own documented ECS idiom --
+                  view is the batch primitive, iterate it yourself.
+            - con: >
+                  Leaves the repeated dict(zip(...)) pattern,
+                  independently reimplemented 3+ times in
+                  story-simulator, exactly as it is.
 
     batch_axis:
         - consideration:
