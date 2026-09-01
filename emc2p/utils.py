@@ -48,29 +48,29 @@ def flagged_component_type_names(components: dict, flag_column: str) -> set[str]
     Parameters
     ----------
     components : dict
-        Dict mapping component type names to ibis Tables (or DataFrames),
-        as found on a Registry/registrar's ``_components`` or an
-        equivalent ``components`` dict. Must include ``"component_type"``
-        and ``"entity_id"`` to return anything.
+        Dict mapping component type names to ibis Tables, as found on a
+        Registry/registrar's ``_components`` or an equivalent ``components``
+        dict. For a registry built via ``load_manifest``, both
+        ``"component_type"`` and ``"entity_id"`` are always present
+        (``registry()`` requires both as inputs) and ``flag_column`` is
+        always a real column on ``component_type`` for any of its
+        schema-declared flags (see ``load_manifest.component_type_table``,
+        which derives the flag columns from ``component_type``'s own
+        declared ``field``s rather than a hardcoded list) -- but a registry
+        built by hand for a test (see ``emc2p.testing.registry_builder.
+        make_registry``) may omit tables/columns it doesn't need, so this
+        still returns ``set()`` rather than raising when either is missing.
     flag_column : str
         The boolean column on ``component_type`` to filter by, e.g.
         ``"skip_on_export"``, ``"derived"``, ``"implicit_parent"``.
     """
     if "component_type" not in components or "entity_id" not in components:
         return set()
-    ct = components["component_type"]
-    ct_df = ct.execute() if hasattr(ct, "execute") else ct
-    if flag_column not in ct_df.columns:
+    ct, entity_id = components["component_type"], components["entity_id"]
+    if flag_column not in ct.columns:
         return set()
-    flagged = ct_df[
-        (ct_df["component_type"] == "component_type") & (ct_df[flag_column] == True)  # noqa: E712
-    ]
-    if flagged.empty:
-        return set()
-    entity_id_table = components["entity_id"]
-    entity_id_df = entity_id_table.execute() if hasattr(entity_id_table, "execute") else entity_id_table
-    id_to_key = entity_id_df.set_index("value")["entity_key"].to_dict()
-    return {id_to_key[eid] for eid in flagged["entity_id"] if eid in id_to_key}
+    flagged = ct.filter(ct.component_type == "component_type", ct[flag_column])
+    return set(flagged.join(entity_id, flagged.entity_id == entity_id.value).entity_key.execute())
 
 
 def candidate_entity_ids(user_path: str, entity_id_table: pd.DataFrame) -> list[str]:
