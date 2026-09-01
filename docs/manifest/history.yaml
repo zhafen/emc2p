@@ -580,3 +580,30 @@ project_history:
               classmethod -- a genuinely backend-agnostic Registry would
               need that workaround re-examined too, left as-is here since
               it wasn't part of what was actually asked.
+    getter_api_design_documented_as_solution_architecture:
+        - description: >
+              docs/manifest/emc2p.yaml gained a getter_api_design
+              subtree modeling the get/view/safe_view/get_current_value
+              naming-and-layering discussion (see this file's own
+              from_component_rows/safe_view_and_safe_view_current
+              entries for the underlying decisions) as a real
+              requirement/solution/consideration/consideration_rating
+              tree, entt research included, rather than leaving it only
+              as prose in a chat transcript. Rendered via iacs's own
+              cmd_generate_report (audit.report dataflow) against it --
+              confirmed working end to end (load_manifest, schema
+              validation with zero invalid_field rows, HTML output).
+
+              Learned in the process: audit.report's requirement tree
+              only renders entities carrying requirement_priority --
+              a bare `solution` tag never appears as a tree node, only
+              in the cost-impact scatter (via impact/cost, aggregated
+              by descendant subtree through the parent hierarchy). So
+              the two requirement-level nodes show in the tree; their
+              six candidate solutions show only in the scatter, and the
+              richer consideration/consideration_rating pro/con data
+              isn't visualized by this report at all -- it's real
+              registry data, inspectable directly, but audit.report has
+              no view for it. That's the same gap story-simulator's own
+              bespoke generate_live_testing_report.py was written to
+              cover; iacs has no generic equivalent today.
