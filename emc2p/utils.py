@@ -50,25 +50,21 @@ def flagged_component_type_names(components: dict, flag_column: str) -> set[str]
     components : dict
         Dict mapping component type names to ibis Tables, as found on a
         Registry/registrar's ``_components`` or an equivalent ``components``
-        dict. For a registry built via ``load_manifest``, both
-        ``"component_type"`` and ``"entity_id"`` are always present
-        (``registry()`` requires both as inputs) and ``flag_column`` is
-        always a real column on ``component_type`` for any of its
-        schema-declared flags (see ``load_manifest.component_type_table``,
-        which derives the flag columns from ``component_type``'s own
-        declared ``field``s rather than a hardcoded list) -- but a registry
-        built by hand for a test (see ``emc2p.testing.registry_builder.
-        make_registry``) may omit tables/columns it doesn't need, so this
-        still returns ``set()`` rather than raising when either is missing.
+        dict. Both ``"component_type"`` and ``"entity_id"`` must be present,
+        and ``flag_column`` a real column on ``component_type`` -- true for
+        any registry built via ``load_manifest`` (``registry()`` requires
+        both tables as inputs, and ``load_manifest.component_type_table``
+        derives the flag columns from ``component_type``'s own declared
+        ``field``s rather than a hardcoded list), and for a hand-built test
+        registry (``Registry.from_component_rows``) as long as its fixture
+        includes a ``component_type`` table declaring ``flag_column``
+        explicitly, even as ``False``, for every relevant type (see
+        ``tests.test_dataflows.test_resolve_paths._component_type_rows``).
     flag_column : str
         The boolean column on ``component_type`` to filter by, e.g.
         ``"skip_on_export"``, ``"derived"``, ``"implicit_parent"``.
     """
-    if "component_type" not in components or "entity_id" not in components:
-        return set()
     ct, entity_id = components["component_type"], components["entity_id"]
-    if flag_column not in ct.columns:
-        return set()
     flagged = ct.filter(ct.component_type == "component_type", ct[flag_column])
     return set(flagged.join(entity_id, flagged.entity_id == entity_id.value).entity_key.execute())
 
