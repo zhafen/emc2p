@@ -309,20 +309,26 @@ class Registry:
         return cls(con, components)
 
     @classmethod
-    def from_component_rows(cls, components: dict[str, list[dict]]) -> "Registry":
+    def from_component_rows(
+        cls, components: dict[str, list[dict]], conn: ibis.BaseBackend | None = None
+    ) -> "Registry":
         """Build a Registry directly from component-first row data.
 
-        Backed by a fresh in-memory DuckDB connection. Convenient for
-        hand-written data (e.g. test fixtures) -- not how production code
-        builds a Registry, which always goes through the Hamilton
+        Backed by an in-memory DuckDB connection by default, or any other
+        ibis backend passed via ``conn`` (e.g. a test that specifically
+        needs to exercise non-DuckDB behavior). Convenient for hand-written
+        data (e.g. test fixtures) -- not how production code builds a
+        Registry, which always goes through the Hamilton
         load_manifest/registrar.update() pipeline instead.
 
         Args:
             components: Dict mapping component type names to lists of row
                 dicts. Each row dict should include "entity_id" plus any
                 component fields.
+            conn: An ibis backend to create the component tables in.
+                Defaults to a fresh in-memory DuckDB connection.
         """
-        conn = ibis.duckdb.connect()
+        conn = conn if conn is not None else ibis.duckdb.connect()
         comp_tables = {}
         for comp_type, rows in components.items():
             df = pd.DataFrame(rows)
