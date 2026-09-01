@@ -669,6 +669,15 @@ class TestRegistryFromComponentRows:
         })
         assert set(registry.component_types) >= {"description", "requirement"}
 
+    def test_accepts_a_non_duckdb_backend(self):
+        """Not DuckDB-specific -- any already-connected ibis backend works via `conn`."""
+        registry = Registry.from_component_rows(
+            {"description": [{"entity_id": "e1", "value": "a thing"}]},
+            conn=ibis.sqlite.connect(),
+        )
+        df = registry.get("description").to_pandas()
+        assert df["value"].tolist() == ["a thing"]
+
 
 class TestRegistryDeclareSchema:
     """Tests for declare_schema and the get/view/view_current fallback it enables."""

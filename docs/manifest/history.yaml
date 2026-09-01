@@ -556,3 +556,27 @@ project_history:
               collapsing that distinction (each already treated an empty
               DataFrame and None interchangeably, or checked `.empty`
               alongside `is None` already).
+    from_component_rows_accepts_any_ibis_backend:
+        - description: >
+              Registry.from_component_rows hardcoded ibis.duckdb.connect(),
+              even though from_database (right above it) already generalizes
+              over any ibis.connect-resolvable URL and Registry.__init__
+              already just takes an ibis.BaseBackend. Raised on
+              zhafen/emc2p#9's own review: how hard would it be to
+              generalize this one too? Turned out easy -- landed as
+              c68fe35 (an optional `conn` parameter, still defaulting to
+              a fresh in-memory DuckDB connection for today's callers,
+              all test fixtures), from a separate Claude session
+              answering the same review comment concurrently with this
+              one's own independent (and redundant, discarded unpushed)
+              attempt at the identical fix. Added on top: a test proving
+              `conn` actually works against ibis's sqlite backend
+              specifically, not just that the parameter exists.
+
+              Registry's class docstring and _resolve_null_typed_columns
+              still describe one real DuckDB-specific behavior
+              (create_table rejects a NULL-typed column outright) baked
+              into the general update() path, not just this one
+              classmethod -- a genuinely backend-agnostic Registry would
+              need that workaround re-examined too, left as-is here since
+              it wasn't part of what was actually asked.
