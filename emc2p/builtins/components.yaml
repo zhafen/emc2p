@@ -87,6 +87,14 @@ base_data_type:
                               sourced directly from YAML.
                           type: bool
                           default: false
+                      implicit_parent:
+                          description: >
+                              Whether an empty entity_ref field on an entity of this
+                              component type implicitly targets the owning entity's
+                              own hierarchy parent, instead of staying unresolved
+                              (see emc2p.dataflows.derive.resolve_paths).
+                          type: bool
+                          default: false
                 - todo: >
                       Component definitions inherit the type for the value field from
                       their parents, but we also allow users to define the type of value
@@ -191,9 +199,19 @@ data_structure:
                   type: bool
                   default: false
                   nullable: false
-        - todo: >
-              We are going to track derived vs source at a schema level, but we can also
-              record this at a field level.
+              is_inherited:
+                  description: >
+                      Whether this ((field)) row was resolved onto its entity via
+                      inheritance from a ((parent)) entity's own field of the same
+                      name, rather than declared directly on this entity. Set by
+                      emc2p.dataflows.derive.inherit_components' own derived_field
+                      step, the same way ((parent)).is_primary marks which parent
+                      row is hierarchy-implied -- so export_manifest can skip
+                      re-emitting an inherited field as if it were this entity's
+                      own, the same way it already skips a hierarchy-implied
+                      parent.
+                  type: bool
+                  default: false
         - todo: >
               We should check if we are modifying any columns in-place anywhere, other
               than filling in null values, and stop that.
@@ -234,7 +252,7 @@ emc2p_component:
               the most common components as nearly every entity should have a description.
               Flagged time_dimension on ``time`` so a later write updates the current
               description instead of accumulating an ever-growing history of near-duplicate
-              restatements — view_current (and export_manifest, which now defers to it for
+              restatements — view_current (and export_manifest, which defers to it for
               any time_dimension'd type) returns only the highest-time row per entity.
               Callers that genuinely want the full history (e.g. an audit trail of how a
               description changed over time) should use ``view``, not ``view_current``.
@@ -275,8 +293,8 @@ emc2p_component:
               hash:
                   description: >
                       Hash of the path, used for ID when brief.
-                      TODO: Do we actually need this? It was supposed to be a readable
-                      version of the path, but it's far from readable.
+                      TODO: is this field still needed? Meant to be a
+                      readable stand-in for the path, but isn't.
                   type: str
               alias:
                   description: >
@@ -320,3 +338,28 @@ emc2p_component:
               ETL table used for schema validation and entity_ref resolution.
         - component_type:
               skip_on_export: true
+
+    invalid_field:
+        - description: >
+              Diagnostic output recording a component field's value that
+              failed its own schema's validation (range, nullable, type, ...).
+              Computed by emc2p.dataflows.validation.validate_components, not
+              sourced from user YAML -- never round-tripped through manifest
+              export, since re-declaring it would bake a stale validation
+              result into the source and have it re-flagged as a fresh
+              "invalid_field" entry on the very next reload.
+        - component_type:
+              skip_on_export: true
+        - field:
+              component_type:
+                  description: The component type whose field failed validation.
+                  type: str
+              field:
+                  description: The name of the field that failed.
+                  type: str
+              value:
+                  description: The value that failed validation.
+              error_type:
+                  description: >
+                      Which constraint was violated (range, nullable, type, ...).
+                  type: str

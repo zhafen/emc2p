@@ -267,6 +267,14 @@ class Registrar:
         return self._registry.view_current
 
     @property
+    def safe_view(self):
+        return self._registry.safe_view
+
+    @property
+    def safe_view_current(self):
+        return self._registry.safe_view_current
+
+    @property
     def get_current_value(self):
         return self._registry.get_current_value
 

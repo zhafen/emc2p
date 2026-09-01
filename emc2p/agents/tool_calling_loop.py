@@ -6,9 +6,7 @@ read/write the registry itself (`view_registry`/`view_entity`/
 `update_registry`/`consolidate_review`), not just narrate a decision for
 something else to apply later, drives that model through this loop
 instead of a single completion -- a tool-less completion structurally
-cannot persist anything on its own (see docs/manifest/history.yaml:
-project_history.keyed_subagent_loop_generalized for the incident that
-surfaced this).
+cannot persist anything on its own.
 
 Nothing here knows about any downstream project's registry schema,
 session/save-dir plumbing, or prompt framing -- `REGISTRAR_TOOL_SPECS`

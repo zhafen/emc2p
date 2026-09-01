@@ -1,20 +1,16 @@
-"""Live regression checking the *write* stage in isolation, over emc2p's
-own MCP server (`emc2p.mcp_server`).
+"""Live regression checking the *write* stage in isolation, over emc2p's own MCP server.
 
-Given already decided narrative data does the model still call update_registry
-correctly: right component type, right field, right value, on the right entity?
-
-Generic: three plain widget entities, one `status` component
-(tests/data/scenarios/status_board/manifest.yaml), nothing to reason
-about, so a failure here isolates the write step itself rather than
-whether the model can also work out what to write.
+Given already-decided data, does the model still call update_registry
+correctly (component/field/value/entity)? Generic widgets isolate the
+write step from any reasoning about what to write.
 """
 
 from pathlib import Path
 
 import pytest
 
-from tests.test_human_validated.helpers import McpClientSession, _load_registrar
+from tests.test_human_validated.helpers import create_session
+from emc2p.registrar import Registrar
 from emc2p.testing.registry_checks import unexpected_components
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -35,25 +31,22 @@ _WRITE_GIVEN_INSTRUCTION = (
 
 @pytest.mark.live
 def test_write_accuracy_given_assignment(tmp_path):
-    """Given each widget's status directly, does update_registry end up
-    with exactly that -- no misattributed component, no dropped write?
+    """Given each widget's status directly, does update_registry end up with exactly that?
 
-    Reads the database only after the session (and with it, the
-    subprocess-held emc2p-mcp server's own connection) has closed --
-    unlike a Postgres-backed registry, DuckDB allows only one process to
-    hold a connection to a given file at a time.
+    Reads the database only after the session closes -- DuckDB allows
+    only one process to hold a connection to a file at a time.
     """
     db_path = tmp_path / "test.duckdb"
 
-    with McpClientSession() as session:
-        print(f"McpClientSession trace: {session.trace_path}")
+    with create_session() as session:
+        print(f"session trace: {session.trace_path}")
         narration = session.send_turn(
             _WRITE_GIVEN_INSTRUCTION.format(
                 database_url=f"duckdb:///{db_path}", manifest_dir=str(STATUS_BOARD_SCENARIO_DIR)
             )
         )
 
-    r = _load_registrar(db_path, narration)
+    r = Registrar.load(f"duckdb:///{db_path}")
 
     assert r.get_current_value("status", "value", "widget_a") == "active", (
         f"widget_a was told its status is active -- narration: {narration!r}"

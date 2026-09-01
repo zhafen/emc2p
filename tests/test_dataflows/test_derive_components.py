@@ -3,11 +3,11 @@
 import pytest
 
 from emc2p.dataflows.derive.derive_components import time_filled_registry
-from tests.conftest import make_registry
+from emc2p.registry import Registry
 
 
 def _status_reading_registry():
-    return make_registry({
+    return Registry.from_component_rows({
         "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
         "field": [
             {"entity_id": "def1", "component_index": 0, "value": "as_of", "time_dimension": True},
@@ -47,7 +47,7 @@ class TestTimeFilledRegistry:
         assert df.set_index("entity_id").loc["e1", "status"] == "open"
 
     def test_no_time_dimension_column_is_noop(self):
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
             "field": [{"entity_id": "def1", "component_index": 0, "value": "as_of"}],
             "status_reading": [
@@ -64,7 +64,7 @@ class TestTimeFilledRegistry:
         scenario-local field only ever loaded once, at world-creation time,
         not re-included in every later incremental write."""
         existing_registry = _status_reading_registry()
-        batch = make_registry({
+        batch = Registry.from_component_rows({
             "entity_id": [{"value": "other_def", "entity_key": "other_type"}],
             "field": [
                 {"entity_id": "other_def", "component_index": 0, "value": "note", "time_dimension": False},
@@ -83,14 +83,14 @@ class TestTimeFilledRegistry:
         """A brand-new existing_registry (no prior update() calls yet) has no
         "field"/"entity_id" tables at all -- must not be treated as knowing
         about every component type's schema."""
-        existing_registry = make_registry({"status_reading": [{"entity_id": "e9"}]})
+        existing_registry = Registry.from_component_rows({"status_reading": [{"entity_id": "e9"}]})
         registry = _status_reading_registry()
         result = time_filled_registry(registry, load_time="2024-12-25", existing_registry=existing_registry)
         df = result._components["status_reading"].execute()
         assert df.set_index("entity_id").loc["e1", "as_of"] == "2024-12-25"
 
     def test_multiple_time_dimension_fields_raises(self):
-        registry = make_registry({
+        registry = Registry.from_component_rows({
             "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
             "field": [
                 {"entity_id": "def1", "component_index": 0, "value": "as_of", "time_dimension": True},

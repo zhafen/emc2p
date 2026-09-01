@@ -273,3 +273,310 @@ project_history:
               (DuckDB, no live model) via a direct table reshuffle, rather
               than depending on any one backend's own query-planner
               quirks to reproduce it incidentally.
+    expected_fixtures_framework_generalized_from_iacs:
+        - description: >
+              emc2p.testing.expected_fixtures (example_dirs,
+              load_expected_module, assert_subset/assert_not_subset,
+              assert_registries_equal, ExpectedValueChecker) generalizes
+              a load-manifest / apply-transformation / compare-to-
+              expected.py testing pattern that predates the 3-repo split
+              of iacs into iacs/emc2p/story-simulator -- the pre-split
+              iacs already had this exact shape for its own dataflow
+              tests, just not factored out anywhere reusable. Dogfooded
+              in emc2p's own tests/test_dataflows/
+              test_human_validated_examples.py before either downstream
+              project adopted it, which is how assert_subset's dict
+              branch was caught silently skipping scalar-leaf comparisons
+              (checking only key presence, not value equality) -- fixed
+              by adding an explicit scalar-equality check.
+    requirement_and_solution_scoring_types_moved_from_iacs:
+        - description: >
+              requirement, solution, consideration, and
+              consideration_rating used to be iacs-only
+              (iacs/builtins/components.yaml), but a downstream project
+              (story-simulator) started using them in its own
+              architecture-decision manifest without depending on iacs at
+              all -- relying entirely on emc2p's schema-optional duck-
+              typing rather than a real, validated schema. Moved into
+              emc2p/builtins/auditing.yaml (named for what these types
+              are for -- auditing/scoring candidate solutions against
+              requirements -- not for iacs, which is just one consumer).
+
+              requirement was reshaped in the move rather than relocated
+              unchanged: it's now a directed_relation, the inverse of
+              solution (marks an entity as something another entity
+              needs, not something it solves), using the same "X of:"
+              syntax solution already had. Its old scored/tagged shape
+              (priority/type/schedule fields) survives under a new name,
+              requirement_priority, rather than being dropped.
+              consideration_rating's earlier major-pro/minor-pro/.../
+              major-con "effect" field (added, then found confusing in
+              practice, in a downstream project's own live testing
+              framework) was dropped in the same move rather than carried
+              over; consideration_rating.value (which consideration it
+              rates) also became nullable, defaulting to an effective
+              weight of 1 when absent, so an uncategorized pro/con still
+              counts in a weighted total instead of vanishing.
+
+              A companion relation, required_by, was added alongside
+              (not moved from anywhere -- new): the other direction of
+              the same relationship solution already covers one way,
+              letting a chain of nested requirements-of-solutions-of-
+              requirements be expressed purely through relations, without
+              tagging any entity as categorically "a requirement" or "a
+              solution." Not named literally "requirement of" (the
+              natural-reading counterpart to "solution of") because an
+              "X of" key parses as component type X with modifier "of"
+              (see load_manifest.py's own _ctf splitting) -- that would
+              collide with requirement's own reshaped meaning above, both
+              resolving to the same registered type.
+    entity_similarity_and_deduplication_module_added:
+        - description: >
+              emc2p.similarity: cosine_similarity/rank_by_similarity (rank
+              arbitrary candidate texts against a query) and
+              pairwise_similarities/find_duplicate_groups (compare every
+              candidate against every other one, closing matches
+              transitively via union-find into duplicate clusters, rather
+              than leaving a flat pile of pairwise edges for the caller to
+              reconstruct groups from by hand) -- plus find_similar_entities/
+              find_duplicate_entities, the registry-aware convenience
+              wrappers reading each entity's description.value by default.
+
+              Embedding-provider-agnostic by construction: every function
+              takes an injectable embed_fn rather than calling a specific
+              provider directly, so tests use a fast deterministic fake
+              instead of real network calls -- the same approach already
+              used for emc2p.agents.tool_calling_loop's own tests.
+              embed_with_litellm is the default production embed_fn,
+              reusing the litellm dependency already gated behind the
+              "agents" extra.
+
+              Motivated by (but not specific to) deciding where a new,
+              naturally-described entity belongs in an existing
+              requirement/solution tree -- retrieval-narrow candidates by
+              similarity, then hand the shortlist to an agent for
+              judgment, rather than either a pure-embedding nearest-
+              neighbor placement (ignores hierarchy) or a full agentic
+              tree traversal (expensive, inconsistent on ambiguous cases)
+              alone. General-purpose rather than placement-specific,
+              since the same primitives cover picking which component
+              type to use or deduplicating component definitions -- see
+              scripts/find_duplicate_component_types.py, which applied
+              find_duplicate_entities to emc2p's own builtin component
+              types and, in the process, caught a real bug:
+              Registrar.from_manifest(["emc2p/builtins"]) double-loads
+              every entity in that directory, since it's *always*
+              auto-included regardless of what's passed as input dirs.
+    registry_builder_moved_here_from_duplicated_conftest:
+        - description: >
+              emc2p's and iacs's own tests/conftest.py files had drifted
+              into byte-identical duplicates of make_registry/the
+              pandas.testing.assert_allclose patch (both defining the
+              exact same code independently, story-simulator's own
+              conftest.py sharing nothing with either). Moved the
+              duplicated logic into emc2p.testing.registry_builder;
+              both repos' own tests/conftest.py now just re-export
+              `make_registry` from there rather than each keeping its
+              own copy -- every existing `from tests.conftest import
+              make_registry` call site across both suites keeps working
+              unchanged, since conftest.py still provides that name.
+    assert_allclose_patch_replaced_by_assert_components_equal:
+        - description: >
+              registry_builder's own pandas.testing.assert_allclose patch
+              only compared component_type/modifier columns after
+              deduplicating rows -- lenient enough to silently mask a
+              real row-count mismatch in test_registrar.py's own
+              test_export_manifest (a load -> export -> reload round
+              trip). Swapping that test to the stricter
+              emc2p.testing.expected_fixtures.assert_registries_equal
+              (which compares every common column, per component type)
+              surfaced three genuine export/reload fidelity bugs, found
+              and fixed together:
+
+              1. ((field)) inheritance wasn't round-tripping:
+              inherit_components.derived_field overwrites the whole
+              field table with the inheritance-resolved set (own fields
+              plus every ancestor's), but had no discriminator between
+              "this entity's own declaration" and "inherited from a
+              parent" -- so export_manifest baked every inherited field
+              into the child's own exported YAML as if newly declared
+              there. Fixed by adding a field.is_inherited bool (mirroring
+              parent.is_primary), set by derived_field, and a new
+              non_inherited_fields export node (mirroring
+              non_hierarchy_parents) that drops is_inherited rows before
+              export.
+
+              2. component_type_table (load_manifest.py) computed its
+              derived/skip_on_export/implicit_parent boolean columns by
+              checking whether a row's own component_type value was a
+              member of the flagged-type-names set -- correct for actual
+              data instances of a flagged type (e.g. a real ((requirement))
+              component correctly inherits requirement's own
+              implicit_parent flag this way), but wrong for the "-
+              component_type: {...}" tag row itself: that row's own
+              component_type column is always the literal string
+              "component_type" (it's an instance of the component_type
+              component type, not of the type it's flagging). Since the
+              literal type name "component_type" is itself a legitimate
+              member of the skip_on_export set (the component_type
+              schema entity flags itself skip_on_export: true so its own
+              tag doesn't round-trip), every OTHER schema entity's own
+              "- component_type: {...}" tag row was incorrectly inheriting
+              that same skip_on_export=True, purely by sharing the same
+              literal component_type value -- e.g. requirement/solution's
+              own tag rows (which only declare implicit_parent: true)
+              showed up as skip_on_export=True too. Fixed by tracking each
+              tag instance's own declared flags separately (keyed by its
+              own entity_id/component_index) and overriding the
+              broadcast-computed columns for tag rows specifically with
+              that instance's own values, instead of the isin() broadcast.
+
+              3. _derived_comp_types/_skip_on_export_types
+              (export_manifest.py) and implicit_parent_target_types
+              (resolve_paths.py) all resolved a flagged type's name by
+              reading the flagged row's own component_type column --
+              which, for a schema entity's "- component_type: {...}" tag
+              row, is always the literal "component_type", not the
+              flagged type's real name (that comes from the *owning*
+              entity's own entity_key, joined via the entity_id table).
+              This meant entity_id/same_as/derived_field/invalid_field
+              (types with no other real data instances anywhere in a
+              manifest to coincidentally carry the right component_type
+              value) were never actually recognized as skip_on_export,
+              silently leaking into exported YAML -- confirmed via
+              invalid_field (a pure validation-diagnostic table, newly
+              given its own builtins.yaml schema entity with
+              skip_on_export: true as part of this same fix) literally
+              appearing as `- invalid_field: {...}` entries in exported
+              manifests. implicit_parent_target_types shared the exact
+              same bug but only "worked" by coincidence wherever a real
+              requirement/solution data instance already existed in the
+              loaded manifest to supply the right value -- already merged
+              into PR #9 with green CI, whose own tests never caught this
+              because test_resolve_paths.py's _component_type_rows helper
+              built unrealistic synthetic rows (component_type set
+              directly to the flagged name) instead of matching real
+              load_manifest.py output. Fixed by adding
+              emc2p.utils.flagged_component_type_names, a shared helper
+              that resolves the flagged type's name via the entity_id
+              join rather than the tag row's own component_type column,
+              used by all three call sites; fixed the test fixture to
+              match real data shape.
+
+              With all three fixed, test_export_manifest was swapped to
+              assert_registries_equal and the registry_builder module's
+              own assert_allclose patch was deleted outright (no
+              remaining caller needed it).
+    make_registry_moved_to_registry_from_component_rows:
+        - description: >
+              emc2p.testing.registry_builder.make_registry's actual
+              construction logic (wrap component-first row dicts into
+              ibis tables backed by a fresh DuckDB connection, then a
+              Registry) was never test-specific -- just an alternate
+              constructor that happened to only be called from test
+              setup. Moved it onto Registry itself as
+              Registry.from_component_rows, alongside the existing
+              to_database/from_database alternate constructors. Initially
+              kept make_registry as a one-line backward-compatible
+              wrapper so existing call sites wouldn't need touching, but
+              then removed it entirely (emc2p.testing.registry_builder
+              module deleted outright) once every call site across emc2p
+              and iacs was updated to call Registry.from_component_rows
+              directly -- with the classmethod now the one real
+              construction path, keeping a parallel test-only wrapper
+              around it added a needless second name for the same thing
+              rather than removing the "why is this in a test fixture
+              module" question the classmethod move set out to answer.
+              story-simulator's own test suite never used make_registry,
+              so it needed no changes.
+    own_test_suite_migrated_to_create_agent_session_load_registrar_dropped:
+        - description: >
+              emc2p's own tests/test_human_validated/helpers.py still
+              built sessions by subclassing emc2p.testing.
+              mcp_client_session.McpClientSession directly, fixing its
+              config to this repo's own .mcp.json/allowed-tools/cwd --
+              exactly the ad hoc pattern create_agent_session (added
+              earlier, see AgentSession/create_agent_session's own
+              module docstring) was meant to replace, but this repo's own
+              dogfooding test suite was never actually migrated onto it
+              when story-simulator's own helpers.py was (see
+              headless_and_mcp_client_session_unified_into_create_session
+              in story-simulator's own history.yaml). Replaced the
+              subclass with a create_session() wrapper around
+              create_agent_session("mcp_client", ...), matching that same
+              pattern -- still always the mcp_client driver (deliberately
+              not locked to a Claude-only headless CLI, per the
+              subclass's own prior docstring), just built through the
+              shared factory instead of duplicating its constructor by
+              hand.
+
+              Also dropped _load_registrar, a thin wrapper around
+              Registrar.load that only added an assert-file-exists check
+              (for a friendlier failure than DuckDB silently creating an
+              empty database file at a path nothing ever wrote to) ahead
+              of the one real call. Its only caller (test_write_accuracy.py)
+              now calls Registrar.load directly -- the existing method
+              already does the real work; the wrapper's only value was
+              the friendlier error message on the you-forgot-to-actually-
+              write-anything case, judged not worth a whole extra function
+              for.
+    test_human_validated_comments_and_docstrings_abbreviated:
+        - description: >
+              tests/test_human_validated/helpers.py and
+              test_write_accuracy.py carried the same sprawling
+              docstring style as story-simulator's own copy of this
+              package (see story-simulator's own history.yaml entry of
+              the same name) before both adopted a stricter,
+              human_validated-only convention: an inline comment is at
+              most two lines, and a docstring is a one-line summary
+              followed by an empty line and at most three more lines.
+    safe_view_and_safe_view_current_added_to_registry:
+        - description: >
+              story_simulator/core.py had its own safe_view/
+              safe_view_current free functions -- KeyError-safe wrappers
+              around Registrar.view/view_current for reading a component
+              type that might never have been written to yet (event_state
+              before any event resolves, world_clock before anything's
+              popped). Neither function contained any story-simulator-
+              specific logic; they operated purely on Registrar's own
+              public interface, and get_current_value already carried the
+              identical try/except KeyError pattern for the single-value
+              case. Added Registry.safe_view/safe_view_current (with
+              Registrar property forwarding, matching view/view_current's
+              own pattern) so the KeyError-safety lives in one place;
+              get_current_value now calls safe_view_current internally
+              instead of duplicating its own try/except. Simplified one
+              behavior in the move: the downstream version's upfront
+              `component_type in registrar.registry.component_types`
+              check treated a declared-but-dataless component type the
+              same as a genuinely unknown one (both returned None) --
+              safe_view/safe_view_current now return an empty DataFrame
+              for the former and reserve None for the latter, since
+              nothing at either call site actually depended on
+              collapsing that distinction (each already treated an empty
+              DataFrame and None interchangeably, or checked `.empty`
+              alongside `is None` already).
+    from_component_rows_accepts_any_ibis_backend:
+        - description: >
+              Registry.from_component_rows hardcoded ibis.duckdb.connect(),
+              even though from_database (right above it) already generalizes
+              over any ibis.connect-resolvable URL and Registry.__init__
+              already just takes an ibis.BaseBackend. Raised on
+              zhafen/emc2p#9's own review: how hard would it be to
+              generalize this one too? Turned out easy -- landed as
+              c68fe35 (an optional `conn` parameter, still defaulting to
+              a fresh in-memory DuckDB connection for today's callers,
+              all test fixtures), from a separate Claude session
+              answering the same review comment concurrently with this
+              one's own independent (and redundant, discarded unpushed)
+              attempt at the identical fix. Added on top: a test proving
+              `conn` actually works against ibis's sqlite backend
+              specifically, not just that the parameter exists.
+
+              Registry's class docstring and _resolve_null_typed_columns
+              still describe one real DuckDB-specific behavior
+              (create_table rejects a NULL-typed column outright) baked
+              into the general update() path, not just this one
+              classmethod -- a genuinely backend-agnostic Registry would
+              need that workaround re-examined too, left as-is here since
+              it wasn't part of what was actually asked.

@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "duckdb>=1.3.2",
     "ibis-framework[duckdb]>=2.0.0",
+    "numpy>=1.24.0",
     "pandas>=2.0.0",
     "pandera[ibis]>=0.25.0",
     "pyyaml>=6.0",
@@ -52,4 +53,10 @@ emc2p = ["builtins/*.yaml"]
 testpaths = ["tests"]
 markers = [
     "live: tests that call a real model API (via a real CLI or litellm -- cost money, excluded from CI)",
+    "slow: tests that go through the real load_manifest/from_manifest pipeline (Hamilton driver construction dominates, regardless of manifest size), spin up a real MCP-server subprocess, or otherwise individually take 1s+ -- numerous enough to dominate the full suite's wall time. Excluded by default (see addopts); run everything with `-m \"not live\"`.",
 ]
+# Default `uv run pytest` run: fast, for iterating before a commit.
+# Full run (slow tests included, still what CI runs): `uv run pytest -m "not live"`
+# -- an explicit -m on the command line fully replaces this addopts value,
+# so it isn't additive and doesn't need "or slow" spelled out.
+addopts = ["-m", "not slow and not live"]

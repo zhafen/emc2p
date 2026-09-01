@@ -23,7 +23,7 @@ FAKE_MODEL = "deepseek/deepseek-chat"
 
 
 # Plain duck-typed doubles for litellm's response shape, not litellm's own
-# pydantic types -- see docs/manifest/history.yaml: project_history.mcp_client_session_added for why.
+# pydantic types -- keeps these tests from depending on litellm/pydantic.
 @dataclass
 class _FakeFunction:
     name: str
@@ -116,6 +116,7 @@ def _patched_model(*responses: _FakeResponse):
 
 
 class TestRealMcpRoundTrip:
+    @pytest.mark.slow
     def test_send_turn_drives_the_real_server_and_returns_final_text(self, tmp_path):
         db_path = tmp_path / "test.duckdb"
         with _patched_model(
@@ -150,6 +151,7 @@ class TestRealMcpRoundTrip:
                 names = {t["function"]["name"] for t in session._openai_tools}
         assert names == {"mcp__emc2p__view_registry"}
 
+    @pytest.mark.slow
     def test_multiple_send_turn_calls_share_one_open_registry(self, tmp_path):
         db_path = tmp_path / "test.duckdb"
         with _patched_model(

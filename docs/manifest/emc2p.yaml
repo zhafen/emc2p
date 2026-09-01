@@ -1,0 +1,20 @@
+file_info:
+    - description: >
+          Architecture/backlog notes for emc2p itself, following the same
+          requirement/solution convention as iacs's and story-simulator's
+          own project manifests. Kept under docs/, not this package's own
+          builtins/ (which every registry.update() call merges in as
+          schema) or manifest/ -- this directory is for architecture
+          review, not merged into every registry. History that isn't
+          itself a requirement/solution lives in history.yaml, kept
+          separate so it isn't scanned in as part of assessing
+          requirements/solutions.
+    - file_info
+
+deduplication_tool:
+    - description: >
+          scripts/find_duplicate_component_types.py, exposed as an MCP
+          tool so a connected agent can run the duplicate-component-type
+          check directly instead of a maintainer running the script by
+          hand.
+    - solution

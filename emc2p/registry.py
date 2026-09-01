@@ -308,6 +308,34 @@ class Registry:
         components = {name: con.table(name) for name in con.list_tables()}
         return cls(con, components)
 
+    @classmethod
+    def from_component_rows(
+        cls, components: dict[str, list[dict]], conn: ibis.BaseBackend | None = None
+    ) -> "Registry":
+        """Build a Registry directly from component-first row data.
+
+        Backed by an in-memory DuckDB connection by default, or any other
+        ibis backend passed via ``conn`` (e.g. a test that specifically
+        needs to exercise non-DuckDB behavior). Convenient for hand-written
+        data (e.g. test fixtures) -- not how production code builds a
+        Registry, which always goes through the Hamilton
+        load_manifest/registrar.update() pipeline instead.
+
+        Args:
+            components: Dict mapping component type names to lists of row
+                dicts. Each row dict should include "entity_id" plus any
+                component fields.
+            conn: An ibis backend to create the component tables in.
+                Defaults to a fresh in-memory DuckDB connection.
+        """
+        conn = conn if conn is not None else ibis.duckdb.connect()
+        comp_tables = {}
+        for comp_type, rows in components.items():
+            df = pd.DataFrame(rows)
+            conn.create_table(comp_type, df)
+            comp_tables[comp_type] = conn.table(comp_type)
+        return cls(conn, comp_tables)
+
     def close(self) -> None:
         """Close the underlying database connection."""
         self._con.disconnect()
@@ -411,6 +439,33 @@ class Registry:
         """
         return self._view(component_type, self._current_table, aliases)
 
+    def safe_view(
+        self, component_type: str | list[str], aliases: str | list[str] | None = None
+    ) -> pd.DataFrame | None:
+        """Like `view`, but returns None instead of raising for an unknown component type.
+
+        A component type that's declared (see `declare_schema`) but has no
+        data yet still comes back as an empty DataFrame, not None -- only a
+        component type unknown to the registry entirely is safed away.
+
+        Args:
+            component_type: Same as `view`.
+            aliases: Same as `view`.
+        """
+        try:
+            return self.view(component_type, aliases).execute()
+        except KeyError:
+            return None
+
+    def safe_view_current(
+        self, component_type: str | list[str], aliases: str | list[str] | None = None
+    ) -> pd.DataFrame | None:
+        """Like `safe_view`, but resolves each field's current row per entity (see `view_current`)."""
+        try:
+            return self.view_current(component_type, aliases).execute()
+        except KeyError:
+            return None
+
     def get_current_value(self, component_type: str, field: str = "value", alias: str | None = None) -> Any:
         """The current `component_type.field` value for one entity, or None.
 
@@ -431,11 +486,8 @@ class Registry:
         Returns:
             The current value, or None if nothing is recorded yet.
         """
-        try:
-            df = self.view_current(f"{component_type}.{field}", aliases=alias).execute()
-        except KeyError:
-            return None
-        if df.empty:
+        df = self.safe_view_current(f"{component_type}.{field}", aliases=alias)
+        if df is None or df.empty:
             return None
         return df.iloc[-1][f"{component_type}.{field}"]
 
@@ -555,11 +607,11 @@ class Registry:
 
         Two rows tied on the time_dimension value are broken by
         ``_seq_{field}`` (see ``merge``) when present, most-recent-write
-        wins — so a second update in the same in-world turn no longer loses
+        wins — so a second update in the same in-world turn doesn't lose
         to the first via an arbitrary, backend-dependent window-function
-        order. A table with no ``_seq_{field}`` column yet (e.g. one that
-        predates this column, or was inserted directly rather than through
-        ``merge``) falls back to that prior arbitrary tie-break.
+        order. A table with no ``_seq_{field}`` column (e.g. one inserted
+        directly rather than through ``merge``) falls back to that
+        arbitrary tie-break.
 
         Raises:
             ValueError: If ``table_name`` has more than one time_dimension field.

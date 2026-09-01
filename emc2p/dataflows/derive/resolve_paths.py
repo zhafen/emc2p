@@ -4,7 +4,7 @@ import ibis.expr.types as ir
 from hamilton.function_modifiers import extract_fields
 
 from ...registry import Registry
-from ...utils import candidate_entity_ids, dhash
+from ...utils import candidate_entity_ids, dhash, flagged_component_type_names
 
 
 INPUT_COMPONENT_TYPES = ["field", "entity_id"]
@@ -50,18 +50,35 @@ def fields_of_type_entity_ref(entity_id: ir.Table, field: ir.Table) -> dict[str,
     return result
 
 
+def implicit_parent_target_types(components: dict) -> set[str]:
+    """Component type names marked ``implicit_parent: true`` in the
+    ``component_type`` table (see auditing.yaml's ``requirement``/
+    ``solution``) -- an empty entity_ref field on an entity of one of these
+    types implicitly targets the owning entity's own hierarchy parent
+    instead of staying unresolved, e.g. a childless ``- requirement`` (no
+    ``of:`` target) means "this entity is a requirement of its parent", per
+    iacs.yaml's own implied_relationship_with_comp note.
+    """
+    return flagged_component_type_names(components, "implicit_parent")
+
+
 @extract_fields(dict(parent=ir.Table))
 def components_with_resolved_paths(
     entity_id: ir.Table,
     components: dict,
     fields_of_type_entity_ref: dict[str, list[str]],
+    parent_from_hierarchy: ir.Table,
+    implicit_parent_target_types: set[str],
 ) -> dict:
     """Return all components, with entity_ref fields resolved to ``{field}_eid`` columns.
 
     Every component from the registry is included in the result.  For component
     types listed in ``fields_of_type_entity_ref``, each named field gets a
     companion ``{field}_eid`` column containing the resolved entity ID
-    (``None`` if 0 or 2+ candidates match).
+    (``None`` if 0 or 2+ candidates match). For component types in
+    ``implicit_parent_target_types`` (``requirement``/``solution``, by
+    default), an empty field value resolves to the owning entity's own
+    hierarchy parent instead of staying unresolved.
 
     Parameters
     ----------
@@ -71,6 +88,13 @@ def components_with_resolved_paths(
         The full components dict from the registry.
     fields_of_type_entity_ref : dict[str, list[str]]
         Mapping of component_type -> list of field names with entity_ref type.
+    parent_from_hierarchy : ir.Table
+        Hierarchy-implied parent per entity, keyed by ``entity_id`` ->
+        ``parent_eid``. Used as the implicit target for empty values of a
+        type in ``implicit_parent_target_types``.
+    implicit_parent_target_types : set[str]
+        Component type names whose empty entity_ref field should default to
+        the owning entity's own hierarchy parent.
 
     Returns
     -------
@@ -78,23 +102,32 @@ def components_with_resolved_paths(
         All components, with resolved ``{field}_eid`` columns added where applicable.
     """
     entity_id_df = entity_id.to_pandas()
+    hierarchy_parent_by_entity = (
+        parent_from_hierarchy.to_pandas().set_index("entity_id")["parent_eid"].to_dict()
+    )
 
     result: dict = dict(components)
     for comp_type, field_names in fields_of_type_entity_ref.items():
         if comp_type not in result:
             continue
         df = result[comp_type].to_pandas()
+        implicit_parent_target = comp_type in implicit_parent_target_types
         for field_name in field_names:
             if field_name not in df.columns:
                 continue
 
-            def resolve(val, _df=entity_id_df):
-                if pd.isna(val):
+            def resolve(val, owner_entity_id, _df=entity_id_df):
+                if pd.isna(val) or val == "":
+                    if implicit_parent_target:
+                        return hierarchy_parent_by_entity.get(owner_entity_id)
                     return None
                 candidates = candidate_entity_ids(str(val), _df)
                 return candidates[0] if len(candidates) == 1 else None
 
-            df[f"{field_name}_eid"] = df[field_name].apply(resolve).astype("string")
+            df[f"{field_name}_eid"] = df.apply(
+                lambda row, _field_name=field_name: resolve(row[_field_name], row["entity_id"]),
+                axis=1,
+            ).astype("string")
         result[comp_type] = ibis.memtable(df)
     return result
 

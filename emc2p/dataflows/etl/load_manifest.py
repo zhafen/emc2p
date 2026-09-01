@@ -273,12 +273,11 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
     attached to that entity (see ``csv_component_tables``), not a separate
     entity.
 
-    A prior version gave each CSV *row* its own entity (disambiguated with a
-    ``stem[row_index]`` name), but that meant every row's entity_key/alias
-    collided (all equal to the stem) and, once round-tripped through YAML
-    export/reimport, its synthetic ``[row_index]`` path segment came back as
-    a *real* container entity the original CSV load never had. Treating the
-    whole file as one entity avoids both problems.
+    Treating the whole file as one entity, rather than giving each row its
+    own entity, avoids two problems a per-row entity would create: every
+    row's entity_key/alias colliding (all equal to the stem), and a
+    synthetic ``[row_index]`` path segment coming back as a *real*
+    container entity once round-tripped through YAML export/reimport.
 
     Parameters
     ----------
@@ -414,9 +413,8 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
     -------
     ir.Table
         Columns: entity_id, entity_key, entity_path, filepath. Schema matches
-        the subset of ``keyvalue_store`` that ``entity_id_table`` used to
-        derive from, so it's a drop-in replacement that also covers entities
-        with no components.
+        the corresponding subset of ``keyvalue_store`` columns, so it's a
+        drop-in replacement that also covers entities with no components.
     """
     rows = []
     for file_id, entities in raw_entity_first_data.items():
@@ -585,21 +583,29 @@ def component_type_table(
     keyvalue_store: ir.Table,
     csv_component_tables: dict[str, ir.Table] = None,
 ) -> ir.Table:
-    """Build one row per component instance, including derived and skip_on_export flags.
+    """Build one row per component instance, including component_type's own
+    declared boolean flags (``derived``, ``skip_on_export``,
+    ``implicit_parent``, as of this writing).
 
     Reads explicit ``component_type`` component entries from the keyvalue_store to
-    populate ``derived`` and ``skip_on_export`` columns on the metadata table.
+    populate those flag columns on the metadata table. Which flags exist is
+    itself schema-derived -- whatever bool-typed ``- field: {...}`` entries
+    the ``component_type`` schema entity declares on itself in builtins.yaml
+    (always loaded, see ``_BUILTINS_DIRS``) -- rather than a hardcoded list,
+    so a newly declared flag is picked up automatically instead of silently
+    going missing until this function is also updated by hand.
 
     CSV-derived metadata comes from ``csv_component_tables`` (one row per CSV
     row, i.e. one row per ``"{stem}_comp"`` component instance) rather than
-    ``csv_spine`` (one row per *file*/entity) — the two are no longer the same
-    granularity now that a whole CSV file is a single entity with many
-    component instances attached.
+    ``csv_spine`` (one row per *file*/entity) — a whole CSV file is a single
+    entity with many component instances attached, so the two are
+    different granularities.
 
     Returns
     -------
     ir.Table
-        Columns: entity_id, component_index, component_type, modifier, derived, skip_on_export.
+        Columns: entity_id, component_index, component_type, modifier,
+        plus one column per declared component_type flag.
     """
     df = keyvalue_store.execute()
 
@@ -610,24 +616,62 @@ def component_type_table(
         .to_dict()
     )
 
+    # Which flags to look for is itself schema-derived: the bool-typed
+    # `- field: {...}` entries the `component_type` schema entity declares
+    # on itself (builtins.yaml), not a hardcoded list -- keyed by
+    # (entity_id, component_index) rather than component_index alone in
+    # case more than one loaded entity somehow resolves to that same key.
+    type_schema_eids = {eid for eid, key in entity_keys.items() if key == "component_type"}
+    field_rows = df[(df["component_type"] == "field") & df["entity_id"].isin(type_schema_eids)]
+    flag_value_by_key = field_rows[field_rows["field"] == "value"].set_index(
+        ["entity_id", "component_index"]
+    )["value"]
+    flag_type_by_key = field_rows[field_rows["field"] == "type"].set_index(
+        ["entity_id", "component_index"]
+    )["value"]
+    flag_names = sorted(
+        name for key, name in flag_value_by_key.items() if flag_type_by_key.get(key) == "bool"
+    )
+
     ct_data = df[df["component_type"] == "component_type"]
-    derived_set: set[str] = set()
-    skip_set: set[str] = set()
+    flagged_sets: dict[str, set[str]] = {flag: set() for flag in flag_names}
+    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the flags
+    # a given "- component_type: {...}" tag instance declares on itself.
+    # Needed so that a tag's own meta row (below) can be set from what THAT
+    # tag actually declared, instead of the isin() broadcast further down --
+    # which answers "is this row an instance of a type in {derived,
+    # skip,implicit_parent}_set", a question a tag-declaration row itself
+    # would also match whenever the literal type name "component_type" is
+    # itself a member of one of these sets (e.g. component_type's own
+    # skip_on_export: true declaration), incorrectly carrying that flag
+    # onto every OTHER entity's own component_type tag row too.
+    own_flags: dict[tuple, dict[str, bool]] = {}
     for _, row in ct_data.iterrows():
         eid = str(row["entity_id"])
+        cidx = row["component_index"]
         field = str(row["field"])
         val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
+        if field in flagged_sets:
+            own_flags.setdefault((eid, cidx), {})[field] = val
         type_name = entity_keys.get(eid, "")
         if not type_name:
             continue
-        if field == "derived" and val:
-            derived_set.add(type_name)
-        elif field == "skip_on_export" and val:
-            skip_set.add(type_name)
+        if field in flagged_sets and val:
+            flagged_sets[field].add(type_name)
 
     meta_df = df[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
-    meta_df["derived"] = meta_df["component_type"].isin(derived_set)
-    meta_df["skip_on_export"] = meta_df["component_type"].isin(skip_set)
+    for flag in flag_names:
+        meta_df[flag] = meta_df["component_type"].isin(flagged_sets[flag])
+
+    is_tag_row = meta_df["component_type"] == "component_type"
+    for flag in flag_names:
+        meta_df.loc[is_tag_row, flag] = meta_df.loc[is_tag_row].apply(
+            lambda r, _flag=flag: own_flags.get(
+                (str(r["entity_id"]), r["component_index"]), {}
+            ).get(_flag, False),
+            axis=1,
+        )
+
     meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
     yaml_ct = ibis.memtable(meta_df)
 
@@ -640,8 +684,8 @@ def component_type_table(
         cdf["component_type"] = comp_type
         csv_rows.append(cdf)
     csv_df = pd.concat(csv_rows, ignore_index=True)
-    csv_df["derived"] = False
-    csv_df["skip_on_export"] = False
+    for flag in flag_names:
+        csv_df[flag] = False
     csv_df["modifier"] = csv_df["modifier"].astype(pd.StringDtype())
     csv_df["component_type"] = csv_df["component_type"].astype(pd.StringDtype())
     return ibis.union(yaml_ct, ibis.memtable(csv_df))

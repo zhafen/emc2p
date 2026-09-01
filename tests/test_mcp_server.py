@@ -27,6 +27,8 @@ def _db_url(tmp_path) -> str:
 
 
 class TestRegistrarSessions:
+    pytestmark = pytest.mark.slow
+
     def test_view_registry_without_open_raises(self, tmp_path):
         sessions = RegistrarSessions()
         with pytest.raises(ValueError, match="No registry open"):
@@ -90,6 +92,8 @@ class TestDispatch:
     """dispatch() is the (name, arguments) -> str shape emc2p.agents.tool_calling_loop's
     own dispatch callback expects -- see that module's REGISTRAR_TOOL_SPECS."""
 
+    pytestmark = pytest.mark.slow
+
     def _opened(self, tmp_path):
         sessions = RegistrarSessions()
         session = _session()
@@ -121,6 +125,8 @@ class TestDispatch:
 
 
 class TestPreviewConfirmFlow:
+    pytestmark = pytest.mark.slow
+
     def _opened(self, tmp_path):
         sessions = RegistrarSessions()
         session = _session()
@@ -156,6 +162,8 @@ def _extract_token(preview: str) -> str:
 
 
 class TestExportDir:
+    pytestmark = pytest.mark.slow
+
     def test_update_registry_exports_when_export_dir_is_set(self, tmp_path):
         sessions = RegistrarSessions()
         session = _session()
@@ -207,6 +215,8 @@ class TestExportDir:
 
 
 class TestTimeProvider:
+    pytestmark = pytest.mark.slow
+
     def test_time_provider_backfills_time_dimension_fields(self, tmp_path):
         sessions = RegistrarSessions(time_provider=lambda registrar: 42.0)
         session = _session()

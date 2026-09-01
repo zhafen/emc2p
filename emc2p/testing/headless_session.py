@@ -1,16 +1,14 @@
 """Generic infrastructure for driving a real MCP server through a real MCP
-client -- `HeadlessSession` spawns a provider CLI as a subprocess.
+client: `HeadlessSession` spawns a provider CLI (e.g. `claude -p`) as a
+subprocess against a caller-supplied `.mcp.json`, exactly the way a
+client connecting to that server would.
 
-Spawns a provider CLI (e.g. `claude -p`) as a subprocess against a
-caller-supplied `.mcp.json`, exactly the way a client connecting to that
-server would. Nothing here knows about any downstream project's MCP tool
-names, registry backend, or domain scenarios (see docs/manifest/
-history.yaml: project_history.headless_session_generalized for where this
-started). A caller supplies `mcp_config`, `allowed_tools`, `cwd`, `model`,
-and any `extra_env` its own MCP server(s) need (e.g. a database URL
-derived from a save/workdir the caller picked) -- a downstream project
-typically wraps this in its own subclass or fixture that fixes these to
-its own defaults.
+Nothing here knows about any downstream project's MCP tool names,
+registry backend, or domain scenarios. A caller supplies `mcp_config`,
+`allowed_tools`, `cwd`, `model`, and any `extra_env` its own MCP
+server(s) need (e.g. a database URL derived from a save/workdir the
+caller picked) -- a downstream project typically wraps this in its own
+subclass or fixture that fixes these to its own defaults.
 """
 
 from __future__ import annotations
@@ -131,16 +129,15 @@ class ClaudeHeadlessProvider(HeadlessProvider):
         cosmetic.
 
         A nested `claude -p` can otherwise inherit and attach to this
-        outer session. Confirmed live: run from inside a Claude Code Cloud session, this
+        outer session: running inside a Claude Code Cloud session, this
         process's own environment carries CLAUDE_CODE_SESSION_ID (plus its
         messaging socket/token, oauth fd, container id, ...) for *this*
-        session. Passed through via a plain `{**os.environ, ...}`, the
-        nested `claude -p` subprocess picked that session ID up and
-        attached to this exact outer session's own transcript/state
-        instead of starting a fresh, isolated one. A local terminal
-        invocation never had these vars set in the first place, which is
-        presumably why this went unnoticed until first run from a Cloud
-        session.
+        session, and a plain `{**os.environ, ...}` pass-through would let
+        the nested `claude -p` subprocess pick that session ID up and
+        attach to this exact outer session's own transcript/state instead
+        of starting a fresh, isolated one. A local terminal invocation
+        never has these vars set in the first place, so the hazard is
+        specific to running inside a Cloud session.
         """
         return {k: v for k, v in env.items() if not k.startswith("CLAUDE") and k != "AI_AGENT"}
 

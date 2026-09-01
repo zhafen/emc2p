@@ -6,14 +6,15 @@ import pytest
 import pandas as pd
 import ibis
 
-from tests.conftest import make_registry
 from tests.test_dataflows.dags import dataflow, dataflow_b
 from emc2p.registrar import Registrar
+from emc2p.registry import Registry
+from emc2p.testing.expected_fixtures import assert_registries_equal
 from emc2p.utils import get_id
 
 
 def _sample_registry():
-    return make_registry(
+    return Registry.from_component_rows(
         {
             "description": [
                 {"entity_id": "e1", "value": "First entity"},
@@ -124,6 +125,8 @@ class TestLoadDataflow:
 
 
 class TestFromManifestRunsDeriveComponents:
+    pytestmark = pytest.mark.slow
+
     def test_derive_components_runs_on_from_manifest(self):
         """derive_components should run automatically during from_manifest."""
         from unittest.mock import patch
@@ -147,6 +150,8 @@ class TestFromManifestRunsDeriveComponents:
 class TestRegistrarUX:
     """This class tests Registrar as we expect to use it."""
 
+    pytestmark = pytest.mark.slow
+
     def test_setup_and_inspect(self):
 
         a = Registrar.from_manifest("examples/example")
@@ -164,10 +169,7 @@ class TestRegistrarUX:
 
         # Reload and check
         a2 = Registrar.from_manifest(output_dir)
-        pd.testing.assert_allclose(
-            a.view("component_type"),
-            a2.view("component_type"),
-        )
+        assert_registries_equal(a, a2)
 
 
 class TestSaveAndLoadDatabase:
@@ -200,6 +202,7 @@ class TestSaveAndLoadDatabase:
             a.registry.get("description").execute().sort_values("entity_id").reset_index(drop=True),
         )
 
+    @pytest.mark.slow
     def test_save_then_from_manifest_roundtrip_via_example(self, tmp_path):
         """Saving a manifest-loaded registry and reloading should preserve data."""
         a = Registrar.from_manifest("examples/example")
@@ -213,6 +216,8 @@ class TestSaveAndLoadDatabase:
 
 class TestLoadManifestWithTime:
     """Tests for load_manifest's time-associated slowly changing dimension support."""
+
+    pytestmark = pytest.mark.slow
 
     _SCHEMA = (
         "status_reading:\n"
@@ -301,6 +306,8 @@ class TestLoadManifestWithTime:
 
 
 class TestLoadManifest:
+    pytestmark = pytest.mark.slow
+
     def test_load_each_yaml_matches_directory(self, tmp_path):
         """Loading YAML files one at a time should match loading the directory."""
         (tmp_path / "requirements.yaml").write_text(
@@ -361,6 +368,8 @@ class TestLoadManifest:
 
 class TestUpdate:
     """Tests for `update`, the general-purpose incremental-merge method."""
+
+    pytestmark = pytest.mark.slow
 
     def test_load_manifest_is_a_thin_wrapper_around_update(self, tmp_path):
         (tmp_path / "requirements.yaml").write_text(
@@ -541,6 +550,8 @@ class TestUpdate:
 class TestExportManifestMethod:
     """Tests for the `export_manifest` convenience method."""
 
+    pytestmark = pytest.mark.slow
+
     def test_export_manifest_writes_to_output_dir(self, tmp_path):
         input_dir = "examples/example"
         output_dir = str(tmp_path)
@@ -565,6 +576,8 @@ class TestExportManifestMethod:
 
 class TestViewProxies:
     """Tests that Registrar exposes the same view helpers as Registry, without `.registry`."""
+
+    pytestmark = pytest.mark.slow
 
     @staticmethod
     def _registrar():
@@ -593,3 +606,13 @@ class TestViewProxies:
         r = self._registrar()
         entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
         assert r.get_entity_id(entity_id) == r.registry.get_entity_id(entity_id)
+
+    def test_safe_view_matches_registry_safe_view(self):
+        r = self._registrar()
+        pd.testing.assert_frame_equal(r.safe_view("description"), r.registry.safe_view("description"))
+
+    def test_safe_view_current_matches_registry_safe_view_current(self):
+        r = self._registrar()
+        pd.testing.assert_frame_equal(
+            r.safe_view_current("description"), r.registry.safe_view_current("description")
+        )

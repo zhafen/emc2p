@@ -23,13 +23,13 @@ def schema_exists(dsn: str, schema: str) -> bool:
     """Whether `schema` (an ibis/database-level namespace, not a table's
     column structure) already exists on the database at `dsn`.
 
-    For a live test whose model narrates a plausible-sounding scene
-    without ever actually opening/creating its own registry (confirmed
-    happening in practice with a weak model), this lets a caller assert
-    that state was actually created for the exact location it expected,
-    before trying to load it -- rather than either silently reading
-    whichever schema a connection falls through to when the named one
-    doesn't exist, or hitting a confusing raw `ibis` error partway through
+    For a live test whose model might narrate a plausible-sounding scene
+    without ever actually opening/creating its own registry, this lets a
+    caller assert that state was actually created for the exact location
+    it expected, before trying to load it -- rather than either silently
+    reading whichever schema a connection falls through to when the
+    named one doesn't exist, or hitting a confusing raw `ibis` error
+    partway through
     loading a nonexistent schema's tables.
     """
     con = ibis.connect(dsn)
@@ -64,16 +64,14 @@ def write_time(registrar: "Registrar", component_type: str, alias: str) -> float
     guessed independent of it -- regardless of how many actual
     conversation turns the model took to get there.
 
-    Takes `df[...].max()`, not `.iloc[-1]` -- confirmed live (story-
-    simulator's test_parking_split_across_two_events_per_car, over a real
-    Postgres-backed registry) that `view_df`'s row order doesn't reliably
-    match write order: `Registry._view` (what `view_df` calls) never
-    sorts its output, so two accumulated rows for the same alias can come
-    back in either order depending on the backend's own query plan, even
-    though `view_current`/`get_current_value` (an explicit `ORDER BY
-    time_dimension_field DESC`, see `_current_table`) still resolves the
-    right one. `.iloc[-1]` silently trusted that unspecified order to
-    also be write order, which isn't guaranteed by anything `_view` does.
+    Takes `df[...].max()`, not `.iloc[-1]` -- `Registry._view` (what
+    `view_df` calls) never sorts its output, so two accumulated rows for
+    the same alias can come back in either order depending on the
+    backend's own query plan, even though `view_current`/
+    `get_current_value` (an explicit `ORDER BY time_dimension_field
+    DESC`, see `_current_table`) still resolves the right one. `.iloc[-1]`
+    would silently trust that unspecified order to also be write order,
+    which isn't guaranteed by anything `_view` does.
     """
     df = registrar.view_df(component_type, aliases=alias)
     if df.empty:

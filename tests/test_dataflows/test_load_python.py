@@ -675,6 +675,7 @@ class TestLoadEmc2pPackage:
         df = ct["description"].to_pandas()
         assert len(df) >= 50
 
+    @pytest.mark.slow
     def test_registrar_from_manifest_includes_python_entities(self):
         """Registrar.from_manifest on a dir with .py files registers Python entities."""
         from emc2p.registrar import Registrar

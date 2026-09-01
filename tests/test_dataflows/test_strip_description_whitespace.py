@@ -4,12 +4,12 @@ import pandas as pd
 import ibis
 
 from emc2p.dataflows.derive.derive_components import stripped_registry
-from tests.conftest import make_registry
+from emc2p.registry import Registry
 
 
 def _make_reg_with_field_metadata(comp_type: str, field_name: str, field_entity_id: str):
     """Build a registry with a field row declaring type 'description' for a component."""
-    return make_registry({
+    return Registry.from_component_rows({
         "field": [
             {"entity_id": field_entity_id, "value": field_name, "type": "description"},
         ],
@@ -25,7 +25,7 @@ def _make_reg_with_field_metadata(comp_type: str, field_name: str, field_entity_
 class TestStrippedRegistry:
 
     def test_strips_description_value_column(self):
-        reg = make_registry({
+        reg = Registry.from_component_rows({
             "description": [
                 {"entity_id": "e1", "value": "  hello world  \n"},
                 {"entity_id": "e2", "value": "\ttabbed\t"},
@@ -37,8 +37,7 @@ class TestStrippedRegistry:
         assert df.loc[df["entity_id"] == "e2", "value"].iloc[0] == "tabbed"
 
     def test_no_description_component_does_not_error(self):
-        from emc2p.registry import Registry
-        reg = make_registry({})
+        reg = Registry.from_component_rows({})
         result = stripped_registry(reg)
         assert isinstance(result, Registry)
 
@@ -53,7 +52,7 @@ class TestStrippedRegistry:
         assert df.loc[0, "other"] == "  untouched  "
 
     def test_non_string_values_are_unchanged(self):
-        reg = make_registry({
+        reg = Registry.from_component_rows({
             "description": [
                 {"entity_id": "e1", "value": "  text  "},
                 {"entity_id": "e2", "value": None},
@@ -65,7 +64,7 @@ class TestStrippedRegistry:
         assert pd.isna(df.loc[df["entity_id"] == "e2", "value"].iloc[0])
 
     def test_no_field_or_entity_id_table_does_not_error(self):
-        reg = make_registry({
+        reg = Registry.from_component_rows({
             "description": [{"entity_id": "e1", "value": "  text  "}],
         })
         result = stripped_registry(reg)
