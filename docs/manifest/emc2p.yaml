@@ -18,3 +18,105 @@ deduplication_tool:
           check directly instead of a maintainer running the script by
           hand.
     - solution
+
+access_granularity:
+    data:
+        - description: Enable access for different levels of granularity.
+        - requirement
+    single_component:
+        - description: >
+            Access to a single full component table with no transformations applied.
+            Acts as a source of truth.
+        - requirement
+    components_selection:
+        - description: >
+            Choose which components to select, and the type of join. Always join on
+            entity_id.
+        - requirement
+    single_entity:
+        - description: >
+            Access to all components for a single entity.
+        - requirement
+    entities_selection:
+        - description: >
+            Choose the entities to retrieve the data for.
+        - requirement
+    field_selection:
+        - description: >
+            Choose the entities to retrieve the data for.
+        - requirement
+
+
+
+
+access_granularity.single_component: Single full component table
+
+
+
+access_granularity.multiple_components: Multiple joined component tables, with control over the join
+
+
+
+access_granularity.single_entity: All components for a single entity
+
+
+
+access_granularity.field_selection: A selection of different fields from multiple component tables
+
+
+
+access_granularity.single_value: A single field for a single entity
+
+
+
+All fields for a given set of entities
+
+
+
+Enable access for both current and full SCD data
+
+
+
+Enable these forms of output format, as relevant for a given granularity
+
+
+
+
+
+ibis Table
+
+
+
+pandas DataFrame
+
+
+
+alias-value dictionary
+
+
+
+single value matching a base type
+
+
+
+Enable access with and without failsafes
+
+
+
+Access is efficient
+
+
+
+Each of these requirements is actually two requirements:
+
+One requirement for implementation , one requirement for user select access parameters.
+
+
+
+Ideally, the user can choose any combination of these outputs. Right now we have somewhat confusing and spotty coverage of these requirements based on our existing solutions. Let's take a step back and design something that fulfills all these requirements from the outset. move the
+In terms of the above access parequirements, there are two solutions for the user interface, at least that I can think of right now.
+Access parameters are specified via method name (e.g. for requirement 3 view vs view_current)
+
+Access parameters are specified via argument.
+
+
