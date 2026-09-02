@@ -20,91 +20,134 @@ deduplication_tool:
     - solution
 
 getter_api_design:
-    output_granularity:
-        data:
-            - description: Enable access for different levels of granularity.
-            - requirement
-        raw_data:
-            - description: >
-                Access to a single component tables with no transformations applied.
-                Acts as a source of truth.
-            - requirement
-        components_selection:
-            - description: >
-                Choose which components to select, and the type of join. Always join on
-                entity_id.
-            - requirement
-        entities_selection:
-            - description: >
-                Choose the entities to retrieve the data for.
-            - requirement
-        field_selection:
-            - description: >
-                Choose the fields in different components to retrieve the data for.
-            - requirement
-    output_format:
+    getter_api_requirements:
         data:
             - description: >
-                Enable different types of output, as relevant for a given output data
-                structure. We want users to be able to easily use our output.
+                Each of the requirements is an axis with multiple sub requirements. We
+                need a solution for every combination of sub requirements, assuming only
+                one sub requirement needs to be met at a time for a given axis.  For
+                example, we need to a solution for the combination of
+                implementation_details.interface,
+                output_granularity.components_selection output_format.ibis_table,
+                scd_data.current_data, error_handling.raises_errors, and
+                entity_specification_method.entity_alias.  However, some combinations
+                will not be relevant (e.g. tabular_output_format for one field on one
+                entity), and we want to focus solution coverage on requirement
+                combinations that are more likely to be used.
             - requirement
-        tabular_output_formats:
+        implementation_details:
             data:
                 - description: >
-                    The output formats that should be possible for tabular data.
+                    For each requirement, we need to handle various aspects of the
+                    implementation.
                 - requirement
-            ibis_tables:
+            interface:
+                - description: How the user specifies their selection.
                 - requirement
-            pandas_dataframes:
+            implementation:
+                - description: How the mechanics work.
+                - requirement.
+        output_granularity:
+            data:
+                - description: Enable access for different levels of granularity.
                 - requirement
-        row_or_column_output_formats:
+            raw_data:
+                - description: >
+                    Access to a single component tables with no transformations applied.
+                    Acts as a source of truth.
+                - requirement
+            components_selection:
+                - description: >
+                    Choose which components to select, and the type of join. Always join on
+                    entity_id.
+                - requirement
+            entities_selection:
+                - description: >
+                    Choose the entities to retrieve the data for.
+                - requirement
+            field_selection:
+                - description: >
+                    Choose the fields in different components to retrieve the data for.
+                - requirement
+        output_format:
             data:
                 - description: >
-                    The output formats that should be possible for tabular data.
+                    Enable different types of output, as relevant for a given output data
+                    structure. We want users to be able to easily use our output.
                 - requirement
-            pandas_series:
+            tabular_output_formats:
+                data:
+                    - description: >
+                        The output formats that should be possible for tabular data.
+                    - requirement
+                ibis_tables:
+                    - requirement
+                pandas_dataframes:
+                    - requirement
+            row_or_column_output_formats:
+                data:
+                    - description: >
+                        The output formats that should be possible for tabular data.
+                    - requirement
+                pandas_series:
+                    - requirement
+                dictionary_of_values:
+                    - requirement
+                list_of_values:
+                    - description: Assumes IDs at the same indices.
+                    - requirement
+            constant_output_formats:
+                - description: Output for all base types, e.g. string, int, etc.
                 - requirement
-            dictionary_of_values:
+            single_version_of_output:
+                - description: >
+                    For each case where data is output at a given granularity, we want
+                    to handle the special "single" case that has output one level down.
+                    For example, if we're looking at multiple components where our
+                    entity_selection is a single entity, we don't want a tabular output,
+                    but instead a row-like output format.
                 - requirement
-            list_of_values:
-                - description: Assumes IDs at the same indices.
+        scd_data:
+            data:
+                - description: >
+                    We need to enable access to both all slowly-changing-dimension data
+                    and only the current data.
                 - requirement
-        constant_output_formats:
-            - description: Output for all base types, e.g. string, int, etc.
-            - requirement
-        single_version_of_output:
+            full_history:
+                - requirement
+            current_data:
+                - requirement
+        error_handling:
+            data:
+                - description: >
+                    We need to enable both access that raises errors and access that doesn't.
+                - requirement
+            raises_errors:
+                - requirement
+            returns_empty_or_null_objects:
+                - requirement
+        entity_specification_method:
+            data:
+                - description: >
+                    We need to be able to provide access to data given a variety of ways
+                    entities are specified.
+                - requirement
+            entity_id:
+                - description: The easiest option.
+                - requirement
+            entity_path:
+                - description: Slightly harder, but still guaranteed unique.
+                - requirement
+            entity_alias:
+                - description: >
+                    Easiest to use but hardest to implement. Requires path resolution.
+                - requirement
+    getter_api_solutions:
+        parameter_specification_via_method_name:
             - description: >
-                For each case where data is output at a given granularity, we want
-                to handle the special "single" case that has output one level down.
-                For example, if we're looking at multiple components where our
-                entity_selection is a single entity, we don't want a tabular output,
-                but instead a row-like output format.
-            - requirement
-    scd_data:
-        - description: >
-            We need to enable access to both all slowly-changing-dimension data
-            and only the current data.
-    error_handling:
-        - description: >
-            We need to enable both access that raises errors and access that doesn't.
-    entity_specification_method:
-        data:
+                For example, the "safe_" prefix in front of a method means that method
+                will not raise errors.
+        parameter_specification_via_argument:
             - description: >
-                We need to be able to provide access to data given a variety of ways
-                entities are specified.
-            - requirement
-        entity_id:
-            - description: The easiest option.
-            - requirement
-        entity_path:
-            - description: Slightly harder, but still guaranteed unique.
-            - requirement
-        entity_alias:
-            - description: >
-                Easiest to use but hardest to implement. Requires path resolution.
-            - requirement
-    interface_and_internals:
-        - description: >
-            For each requirement listed above, we need both a way for the user to
-            specify their selection and the code to implement that selection.
-        - requirement
+                For example, passing raise_errors=False as an argument means that call
+                will not raise errors.
