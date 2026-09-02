@@ -19,104 +19,92 @@ deduplication_tool:
           hand.
     - solution
 
-access_granularity:
-    data:
-        - description: Enable access for different levels of granularity.
-        - requirement
-    single_component:
+getter_api_design:
+    output_granularity:
+        data:
+            - description: Enable access for different levels of granularity.
+            - requirement
+        raw_data:
+            - description: >
+                Access to a single component tables with no transformations applied.
+                Acts as a source of truth.
+            - requirement
+        components_selection:
+            - description: >
+                Choose which components to select, and the type of join. Always join on
+                entity_id.
+            - requirement
+        entities_selection:
+            - description: >
+                Choose the entities to retrieve the data for.
+            - requirement
+        field_selection:
+            - description: >
+                Choose the fields in different components to retrieve the data for.
+            - requirement
+    output_format:
+        data:
+            - description: >
+                Enable different types of output, as relevant for a given output data
+                structure. We want users to be able to easily use our output.
+            - requirement
+        tabular_output_formats:
+            data:
+                - description: >
+                    The output formats that should be possible for tabular data.
+                - requirement
+            ibis_tables:
+                - requirement
+            pandas_dataframes:
+                - requirement
+        row_or_column_output_formats:
+            data:
+                - description: >
+                    The output formats that should be possible for tabular data.
+                - requirement
+            pandas_series:
+                - requirement
+            dictionary_of_values:
+                - requirement
+            list_of_values:
+                - description: Assumes IDs at the same indices.
+                - requirement
+        constant_output_formats:
+            - description: Output for all base types, e.g. string, int, etc.
+            - requirement
+        single_version_of_output:
+            - description: >
+                For each case where data is output at a given granularity, we want
+                to handle the special "single" case that has output one level down.
+                For example, if we're looking at multiple components where our
+                entity_selection is a single entity, we don't want a tabular output,
+                but instead a row-like output format.
+            - requirement
+    scd_data:
         - description: >
-            Access to a single full component table with no transformations applied.
-            Acts as a source of truth.
-        - requirement
-    components_selection:
+            We need to enable access to both all slowly-changing-dimension data
+            and only the current data.
+    error_handling:
         - description: >
-            Choose which components to select, and the type of join. Always join on
-            entity_id.
-        - requirement
-    single_entity:
+            We need to enable both access that raises errors and access that doesn't.
+    entity_specification_method:
+        data:
+            - description: >
+                We need to be able to provide access to data given a variety of ways
+                entities are specified.
+            - requirement
+        entity_id:
+            - description: The easiest option.
+            - requirement
+        entity_path:
+            - description: Slightly harder, but still guaranteed unique.
+            - requirement
+        entity_alias:
+            - description: >
+                Easiest to use but hardest to implement. Requires path resolution.
+            - requirement
+    interface_and_internals:
         - description: >
-            Access to all components for a single entity.
+            For each requirement listed above, we need both a way for the user to
+            specify their selection and the code to implement that selection.
         - requirement
-    entities_selection:
-        - description: >
-            Choose the entities to retrieve the data for.
-        - requirement
-    field_selection:
-        - description: >
-            Choose the entities to retrieve the data for.
-        - requirement
-
-
-
-
-access_granularity.single_component: Single full component table
-
-
-
-access_granularity.multiple_components: Multiple joined component tables, with control over the join
-
-
-
-access_granularity.single_entity: All components for a single entity
-
-
-
-access_granularity.field_selection: A selection of different fields from multiple component tables
-
-
-
-access_granularity.single_value: A single field for a single entity
-
-
-
-All fields for a given set of entities
-
-
-
-Enable access for both current and full SCD data
-
-
-
-Enable these forms of output format, as relevant for a given granularity
-
-
-
-
-
-ibis Table
-
-
-
-pandas DataFrame
-
-
-
-alias-value dictionary
-
-
-
-single value matching a base type
-
-
-
-Enable access with and without failsafes
-
-
-
-Access is efficient
-
-
-
-Each of these requirements is actually two requirements:
-
-One requirement for implementation , one requirement for user select access parameters.
-
-
-
-Ideally, the user can choose any combination of these outputs. Right now we have somewhat confusing and spotty coverage of these requirements based on our existing solutions. Let's take a step back and design something that fulfills all these requirements from the outset. move the
-In terms of the above access parequirements, there are two solutions for the user interface, at least that I can think of right now.
-Access parameters are specified via method name (e.g. for requirement 3 view vs view_current)
-
-Access parameters are specified via argument.
-
-
