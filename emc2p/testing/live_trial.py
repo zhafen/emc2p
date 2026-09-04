@@ -18,24 +18,39 @@ wires this in via its own root ``conftest.py``::
     )
 
 Any live test that wants trial recording/repetition then adds
-``live_trial`` to its own parameter list (the fixture yields the
-1-indexed trial number, if a test wants to log or branch on it, but most
-tests can just ignore it). The motivating case: a write-accuracy live
-test asking a model to record a fact (e.g. where a car parked) and
-checking the write landed correctly -- exactly the kind of thing that's
-flaky enough to need a pass *rate*, not one pass/fail
-(story-simulator's own ``TestLiveWalkthrough.test_scenario_resolves_correctly``,
-its parking-scenario write-accuracy check, is a real example):
+``live_trial`` to its own parameter list. The fixture yields a
+:class:`LiveTrial` -- ``.number``, the 1-indexed trial number, and a
+settable ``.id`` a test assigns its own project-specific pointer to
+*where the full detail for this trial actually lives* (a session trace
+file path, a trace UUID, ...). This module deliberately doesn't try to
+capture that detail itself (stdout, a traceback, ...): a live test's own
+full turn-by-turn record already exists elsewhere (e.g.
+story-simulator's own ``.live_test_traces/<uuid>.jsonl``, one file per
+session) and is far more useful reconstructed and read there -- even
+published as its own artifact when investigating a specific failure --
+than flattened into a CSV cell. The CSV row is just an index:
+did this trial pass, and which trace does it point to. The motivating
+case: a write-accuracy live test asking a model to record a fact (e.g.
+where a car parked) and checking the write landed correctly -- exactly
+the kind of thing that's flaky enough to need a pass *rate*, not one
+pass/fail (story-simulator's own
+``TestLiveWalkthrough.test_scenario_resolves_correctly``, its
+parking-scenario write-accuracy check, is a real example):
 
     @pytest.mark.live
     def test_scenario_resolves_correctly(self, tmp_path, live_trial):
-        ...
+        with create_session(...) as session:
+            live_trial.id = str(session.trace_path)
+            ...
+
+A test that never sets ``.id`` just records an empty one -- setting it
+is optional, not required to get trial repetition/recording at all.
 
 Running with ``STORY_SIM_LIVE_TRIALS=5 uv run pytest ... -m live`` then
 collects and runs that test 5 times (``test_foo[trial1]`` ..
 ``test_foo[trial5]``); a bare invocation (env var unset) runs it once,
 same as before this fixture existed. Each trial appends one row --
-``commit``/``passed``/``error_log``/``stdout``/``timestamp`` -- to
+``commit``/``passed``/``live_test_id``/``timestamp`` -- to
 ``<results_dir>/<test name>.csv`` (one file per logical test, shared
 across all its trials; create ``results_dir`` as a gitignored directory,
 matching this project's own ``.live_test_traces/`` convention).
@@ -67,6 +82,7 @@ resolved once at collection time.
 from __future__ import annotations
 
 import csv
+import dataclasses
 import os
 import subprocess
 import time
@@ -75,7 +91,22 @@ from typing import Callable, Iterator
 
 import pytest
 
-_CSV_FIELDS = ["commit", "passed", "error_log", "stdout", "timestamp"]
+_CSV_FIELDS = ["commit", "passed", "live_test_id", "timestamp"]
+
+
+@dataclasses.dataclass
+class LiveTrial:
+    """The `live_trial` fixture's own yielded value.
+
+    `number` is the 1-indexed trial number (informational -- most tests
+    can ignore it). `id`, settable by the test body itself, is this
+    project's own live-test identifier for this trial -- whatever traces
+    it back to more detail than a bare pass/fail. Recorded verbatim in
+    the CSV's `live_test_id` column; left blank if the test never sets it.
+    """
+
+    number: int
+    id: str = ""
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -115,9 +146,7 @@ def _sanitize_filename(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
 
 
-def _append_row(
-    csv_path: Path, *, commit: str, passed: bool, error_log: str, stdout: str, timestamp: str
-) -> None:
+def _append_row(csv_path: Path, *, commit: str, passed: bool, live_test_id: str, timestamp: str) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not csv_path.exists()
     with csv_path.open("a", newline="") as f:
@@ -125,13 +154,7 @@ def _append_row(
         if is_new:
             writer.writeheader()
         writer.writerow(
-            {
-                "commit": commit,
-                "passed": passed,
-                "error_log": error_log,
-                "stdout": stdout,
-                "timestamp": timestamp,
-            }
+            {"commit": commit, "passed": passed, "live_test_id": live_test_id, "timestamp": timestamp}
         )
 
 
@@ -178,29 +201,17 @@ def make_live_trial_fixture(
             ids=[f"trial{i}" for i in range(1, n + 1)],
         )
 
-    def _live_trial(request: pytest.FixtureRequest) -> Iterator[int]:
-        trial_number = getattr(request, "param", 1)
-        yield trial_number
+    def _live_trial(request: pytest.FixtureRequest) -> Iterator[LiveTrial]:
+        trial = LiveTrial(number=getattr(request, "param", 1))
+        yield trial
         report = getattr(request.node, "rep_call", None)
-        if report is None:
-            passed = False
-            error_log = "no test report captured (setup/collection error?)"
-            stdout = ""
-        else:
-            passed = bool(report.passed)
-            error_log = "" if passed else report.longreprtext
-            # capstdout is only ever this one phase's own captured output
-            # (the "call" phase, i.e. the test body itself) -- not setup/
-            # teardown -- and only populated when pytest's own capture is
-            # active (the default; empty under -s/--capture=no).
-            stdout = report.capstdout
+        passed = bool(report is not None and report.passed)
         csv_path = results_dir / f"{_sanitize_filename(request.node.originalname or request.node.name)}.csv"
         _append_row(
             csv_path,
             commit=_git_commit(repo_root),
             passed=passed,
-            error_log=error_log,
-            stdout=stdout,
+            live_test_id=trial.id,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
 

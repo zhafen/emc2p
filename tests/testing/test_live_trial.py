@@ -61,33 +61,41 @@ def _read_rows(csv_path: Path) -> list[dict]:
 class TestDefaultReps:
     def test_default_env_var_unset_runs_once_and_records_one_passing_row(self, pytester: pytest.Pytester):
         pytester.makeconftest(_INNER_CONFTEST)
-        pytester.makepyfile(_CORRECT_WRITE_TEST_BODY)
-        result = pytester.runpytest()
-        result.assert_outcomes(passed=1)
-
-        rows = _read_rows(_results_csv(pytester))
-        assert len(rows) == 1
-        assert rows[0]["passed"] == "True"
-        assert rows[0]["error_log"] == ""
-        assert rows[0]["commit"]  # non-empty: "unknown" fallback or a real hash
-        assert rows[0]["timestamp"]
-
-    def test_records_the_test_bodys_own_stdout(self, pytester: pytest.Pytester):
-        pytester.makeconftest(_INNER_CONFTEST)
         pytester.makepyfile(
             f"""
             def {_TEST_NAME}(live_trial):
-                # A real write-accuracy test prints its own session trace
-                # path/narration here for post-hoc debugging -- stdout
-                # capture is what makes that visible in the CSV too.
-                print("agent narration: car_a parked in parking_spot_1")
+                assert live_trial.number == 1
+                recorded_location = "parked in parking_spot_1"
+                assert "parking_spot_1" in recorded_location
             """
         )
         result = pytester.runpytest()
         result.assert_outcomes(passed=1)
 
         rows = _read_rows(_results_csv(pytester))
-        assert "agent narration: car_a parked in parking_spot_1" in rows[0]["stdout"]
+        assert len(rows) == 1
+        assert rows[0]["passed"] == "True"
+        assert rows[0]["live_test_id"] == ""  # never set -- optional
+        assert rows[0]["commit"]  # non-empty: "unknown" fallback or a real hash
+        assert rows[0]["timestamp"]
+
+    def test_records_the_live_test_id_the_test_body_sets(self, pytester: pytest.Pytester):
+        """A real write-accuracy test sets this to its own session trace
+        path (e.g. `live_trial.id = str(session.trace_path)`) -- the CSV
+        row then points at where the full turn-by-turn detail lives,
+        instead of duplicating it into the CSV itself."""
+        pytester.makeconftest(_INNER_CONFTEST)
+        pytester.makepyfile(
+            f"""
+            def {_TEST_NAME}(live_trial):
+                live_trial.id = "session-trace-abc123.jsonl"
+            """
+        )
+        result = pytester.runpytest()
+        result.assert_outcomes(passed=1)
+
+        rows = _read_rows(_results_csv(pytester))
+        assert rows[0]["live_test_id"] == "session-trace-abc123.jsonl"
 
 
 class TestRepeatedTrials:
@@ -105,9 +113,7 @@ class TestRepeatedTrials:
         assert len(rows) == 3
         assert all(row["passed"] == "True" for row in rows)
 
-    def test_a_write_accuracy_misfire_records_passed_false_with_a_nonempty_error_log(
-        self, pytester: pytest.Pytester
-    ):
+    def test_a_write_accuracy_misfire_records_passed_false(self, pytester: pytest.Pytester):
         """A write-accuracy misfire, standing in for the real thing (see
         story-simulator#55's "wrong-but-real component"/invented-location
         threads): the model writes a plausible-looking but wrong spot.
@@ -128,7 +134,6 @@ class TestRepeatedTrials:
         rows = _read_rows(_results_csv(pytester))
         assert len(rows) == 1
         assert rows[0]["passed"] == "False"
-        assert "expected car_a parked in parking_spot_1" in rows[0]["error_log"]
 
     def test_multiple_trials_all_append_to_the_same_csv_not_one_per_trial(
         self, pytester: pytest.Pytester, monkeypatch
