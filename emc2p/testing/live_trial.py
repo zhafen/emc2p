@@ -20,7 +20,12 @@ wires this in via its own root ``conftest.py``::
 Any live test that wants trial recording/repetition then adds
 ``live_trial`` to its own parameter list (the fixture yields the
 1-indexed trial number, if a test wants to log or branch on it, but most
-tests can just ignore it):
+tests can just ignore it). The motivating case: a write-accuracy live
+test asking a model to record a fact (e.g. where a car parked) and
+checking the write landed correctly -- exactly the kind of thing that's
+flaky enough to need a pass *rate*, not one pass/fail
+(story-simulator's own ``TestLiveWalkthrough.test_scenario_resolves_correctly``,
+its parking-scenario write-accuracy check, is a real example):
 
     @pytest.mark.live
     def test_scenario_resolves_correctly(self, tmp_path, live_trial):
