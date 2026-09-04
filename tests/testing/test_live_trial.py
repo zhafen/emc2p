@@ -56,6 +56,20 @@ class TestDefaultReps:
         assert rows[0]["commit"]  # non-empty: "unknown" fallback or a real hash
         assert rows[0]["timestamp"]
 
+    def test_records_the_test_bodys_own_stdout(self, pytester: pytest.Pytester):
+        pytester.makeconftest(_INNER_CONFTEST)
+        pytester.makepyfile(
+            """
+            def test_prints_something(live_trial):
+                print("hello from the test body")
+            """
+        )
+        result = pytester.runpytest()
+        result.assert_outcomes(passed=1)
+
+        rows = _read_rows(_results_csv(pytester, "test_prints_something"))
+        assert "hello from the test body" in rows[0]["stdout"]
+
 
 class TestRepeatedTrials:
     def test_env_var_n_runs_n_trials_and_records_n_rows(self, pytester: pytest.Pytester, monkeypatch):

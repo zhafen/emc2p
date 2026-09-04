@@ -30,7 +30,7 @@ Running with ``STORY_SIM_LIVE_TRIALS=5 uv run pytest ... -m live`` then
 collects and runs that test 5 times (``test_foo[trial1]`` ..
 ``test_foo[trial5]``); a bare invocation (env var unset) runs it once,
 same as before this fixture existed. Each trial appends one row --
-``commit``/``passed``/``error_log``/``timestamp`` -- to
+``commit``/``passed``/``error_log``/``stdout``/``timestamp`` -- to
 ``<results_dir>/<test name>.csv`` (one file per logical test, shared
 across all its trials; create ``results_dir`` as a gitignored directory,
 matching this project's own ``.live_test_traces/`` convention).
@@ -70,7 +70,7 @@ from typing import Callable, Iterator
 
 import pytest
 
-_CSV_FIELDS = ["commit", "passed", "error_log", "timestamp"]
+_CSV_FIELDS = ["commit", "passed", "error_log", "stdout", "timestamp"]
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -110,14 +110,24 @@ def _sanitize_filename(name: str) -> str:
     return "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
 
 
-def _append_row(csv_path: Path, *, commit: str, passed: bool, error_log: str, timestamp: str) -> None:
+def _append_row(
+    csv_path: Path, *, commit: str, passed: bool, error_log: str, stdout: str, timestamp: str
+) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not csv_path.exists()
     with csv_path.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS)
         if is_new:
             writer.writeheader()
-        writer.writerow({"commit": commit, "passed": passed, "error_log": error_log, "timestamp": timestamp})
+        writer.writerow(
+            {
+                "commit": commit,
+                "passed": passed,
+                "error_log": error_log,
+                "stdout": stdout,
+                "timestamp": timestamp,
+            }
+        )
 
 
 def make_live_trial_fixture(
@@ -170,15 +180,22 @@ def make_live_trial_fixture(
         if report is None:
             passed = False
             error_log = "no test report captured (setup/collection error?)"
+            stdout = ""
         else:
             passed = bool(report.passed)
             error_log = "" if passed else report.longreprtext
+            # capstdout is only ever this one phase's own captured output
+            # (the "call" phase, i.e. the test body itself) -- not setup/
+            # teardown -- and only populated when pytest's own capture is
+            # active (the default; empty under -s/--capture=no).
+            stdout = report.capstdout
         csv_path = results_dir / f"{_sanitize_filename(request.node.originalname or request.node.name)}.csv"
         _append_row(
             csv_path,
             commit=_git_commit(repo_root),
             passed=passed,
             error_log=error_log,
+            stdout=stdout,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
 
