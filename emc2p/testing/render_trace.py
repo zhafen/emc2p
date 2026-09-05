@@ -1,35 +1,21 @@
 """Render a live-test session trace (the `.jsonl` a `trace_dir`-configured
-session writes -- see `headless_session.py`/`mcp_client_session.py`) into
-a readable, self-contained HTML report: one entry per turn, tool calls
-paired with their results, errors and checkpoint-shaped pauses flagged.
+session writes) into a readable, self-contained HTML report: one entry
+per turn, tool calls paired with their results, errors flagged.
 
-Two trace shapes exist, one per session-driver family, and this module
-normalizes both into one common `Turn` sequence before rendering, so a
-report looks the same regardless of which driver wrote the trace:
+Normalizes the two trace shapes session drivers write into one common
+`Turn` sequence before rendering:
 
-- `mcp_client_session.py`'s own format (`driver="mcp_client"`): one flat
-  JSON object per line, `type` in "user"/"assistant"/"tool_result".
-- The raw Anthropic Messages `stream-json` protocol, written verbatim by
-  `headless_session.py` (`driver="claude"`/`"copilot"`): richer, nested
-  `message.content` blocks (`text`/`tool_use`/`tool_result`); a
-  `tool_use` block's own result arrives in a *later* `user` event,
-  correlated by `tool_use_id`.
+- `mcp_client_session.py`'s flat format (`driver="mcp_client"`).
+- The raw Anthropic Messages `stream-json` protocol `headless_session.py`
+  passes through verbatim (`driver="claude"`/`"copilot"`) -- a `tool_use`
+  block's result arrives in a *later* event, correlated by `tool_use_id`.
 
-Any tool-call argument value that happens to be base64-encoded JSON
-(e.g. story-simulator's own `resume_token`) is decoded and shown
-alongside the raw call -- a generic affordance, not specific to any one
-project's token format, since several agent-loop designs round-trip
-opaque continuation state exactly this way.
+Any base64-encoded-JSON tool-call argument (e.g. story-simulator's own
+`resume_token`) is decoded and shown alongside the raw call -- generic,
+not keyed to any one project's token format.
 
-CLI:
-
-    uv run python -m emc2p.testing.render_trace path/to/trace.jsonl > report.html
-    uv run python -m emc2p.testing.render_trace path/to/trace.jsonl --output report.html --title "My Trace"
-
-Library:
-
-    from emc2p.testing.render_trace import parse_trace, render_html
-    html = render_html(parse_trace(Path("trace.jsonl")), title="...", source_label=str(path))
+CLI: `uv run python -m emc2p.testing.render_trace trace.jsonl -o report.html`
+Library: `parse_trace()`/`render_html()`.
 """
 
 from __future__ import annotations
@@ -69,11 +55,8 @@ class Turn:
 def parse_trace(path: Path) -> list[Turn]:
     """Read a trace file and return its turns, oldest first.
 
-    Detects which of the two shapes (see module docstring) the file uses
-    from its own content -- a blank/unparseable line is skipped rather
-    than aborting the whole file, since a trace can be truncated mid-write
-    (a crashed session, a killed subprocess) and the turns before that
-    point are still worth rendering.
+    Detects which of the two shapes (see module docstring) the file
+    uses; an unparseable line is skipped, not fatal.
     """
     lines = [line for line in path.read_text().splitlines() if line.strip()]
     events: list[dict[str, Any]] = []
@@ -113,14 +96,10 @@ def _normalize_simple_format(events: list[dict[str, Any]]) -> list[Turn]:
 
 
 def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
-    """The raw Anthropic Messages `stream-json` protocol, as passed
-    through verbatim by `headless_session.py`.
+    """The raw Anthropic Messages `stream-json` protocol.
 
-    A `tool_use` block's own name is only available on the `assistant`
-    event that issued it; the matching `tool_result` block (in a later
-    `user` event) only carries the call's `tool_use_id` -- `tool_names`
-    bridges the two so a rendered result can still say which tool it's
-    the result *of*.
+    `tool_names` maps `tool_use` id to name, since the later
+    `tool_result` block only carries the id.
     """
     turns: list[Turn] = []
     tool_names: dict[str, str] = {}
@@ -179,11 +158,6 @@ def _try_parse_json(value: Any) -> Any:
 def _decode_blobs(value: Any, path: str = "") -> list[tuple[str, Any]]:
     """Recursively find every string leaf in `value` that's base64-encoded
     JSON, and return (dotted-path, decoded-value) for each.
-
-    Deliberately generic (not keyed to any one field name like
-    "resume_token"): several agent-loop designs round-trip opaque
-    continuation state as base64 JSON, and this finds it wherever it
-    shows up rather than assuming one project's naming.
     """
     found: list[tuple[str, Any]] = []
     if isinstance(value, dict):

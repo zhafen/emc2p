@@ -1,21 +1,10 @@
 """Regression coverage for `emc2p.testing.live_trial.make_live_trial_fixture`.
 
-Uses `pytester` (an inner, isolated pytest run) rather than calling the
-factory's own functions directly: `pytest_generate_tests`/
-`pytest_runtest_makereport` are pytest hooks that only do anything as
-part of a real collection+run cycle, unlike `responder_fixture`'s plain
-fixture logic (see test_responder_fixture.py, which needs no such
-inner-run machinery).
-
-The inner test bodies below are modeled on story-simulator's own
-write-accuracy live tests (`tests/location_write_harness.py`,
-`tests/test_human_validated/test_scenarios/parking/test_scenario.py`) --
-the actual motivating use case for `live_trial`: asking a model to record
-where a car parked, then checking the write landed on the right spot,
-repeated across many trials to read a pass rate instead of one pass/fail.
-Kept deterministic and API-cost-free here (a fixed "recorded" string
-stands in for a real model's write) since this file is only testing the
-harness mechanism itself, not any model's actual judgment quality.
+Uses `pytester` (an inner, isolated pytest run), since
+`pytest_generate_tests`/`pytest_runtest_makereport` only do anything as
+part of a real collection+run cycle. Inner test bodies are modeled on a
+write-accuracy check (recording a car's parking location, the actual
+motivating case) but kept deterministic and API-cost-free.
 """
 
 import csv
@@ -80,10 +69,8 @@ class TestDefaultReps:
         assert rows[0]["timestamp"]
 
     def test_records_the_live_test_id_the_test_body_sets(self, pytester: pytest.Pytester):
-        """A real write-accuracy test sets this to its own session trace
-        path (e.g. `live_trial.id = str(session.trace_path)`) -- the CSV
-        row then points at where the full turn-by-turn detail lives,
-        instead of duplicating it into the CSV itself."""
+        """A real test sets this to its own session trace path -- the CSV
+        row points at the full detail rather than duplicating it."""
         pytester.makeconftest(_INNER_CONFTEST)
         pytester.makepyfile(
             f"""
@@ -114,10 +101,8 @@ class TestRepeatedTrials:
         assert all(row["passed"] == "True" for row in rows)
 
     def test_a_write_accuracy_misfire_records_passed_false(self, pytester: pytest.Pytester):
-        """A write-accuracy misfire, standing in for the real thing (see
-        story-simulator#55's "wrong-but-real component"/invented-location
-        threads): the model writes a plausible-looking but wrong spot.
-        """
+        """A write-accuracy misfire: the model writes a plausible-looking
+        but wrong spot (see story-simulator#55)."""
         pytester.makeconftest(_INNER_CONFTEST)
         pytester.makepyfile(
             f"""
@@ -138,10 +123,8 @@ class TestRepeatedTrials:
     def test_multiple_trials_all_append_to_the_same_csv_not_one_per_trial(
         self, pytester: pytest.Pytester, monkeypatch
     ):
-        """`request.node.originalname` (not `.name`, which carries the
-        `[trial2]` parametrize suffix) is what names the CSV file -- all
-        trials of one logical test share one file, so a write-accuracy
-        test's pass rate can be read straight off one CSV's row count."""
+        """`originalname` (not `.name`, which carries the `[trial2]` suffix)
+        names the CSV file, so all trials of one test share one file."""
         pytester.makeconftest(_INNER_CONFTEST)
         pytester.makepyfile(_CORRECT_WRITE_TEST_BODY)
         monkeypatch.setenv("TEST_LIVE_TRIALS", "2")

@@ -1,13 +1,10 @@
-"""Pytest infrastructure for running a live test multiple times ("trials")
-and recording each trial's own outcome to a CSV, so flaky live-model
-behavior can be read as a pass rate across many runs over time instead of
-a single pass/fail per invocation.
+"""Run a live test multiple times ("trials") and record each one's
+outcome to a CSV, so flaky live-model behavior reads as a pass rate
+across many runs instead of a single pass/fail.
 
-Generic across downstream projects, matching this package's other
-``testing/`` modules (``responder_fixture.py``'s factory-returns-a-fixture
-pattern in particular): nothing here knows about a downstream project's
-own scenario/responder vocabulary or repo layout. A downstream project
-wires this in via its own root ``conftest.py``::
+Generic across downstream projects (matching ``responder_fixture.py``'s
+factory-returns-a-fixture pattern) -- wire it into a project's own root
+``conftest.py``::
 
     from emc2p.testing.live_trial import make_live_trial_fixture, pytest_runtest_makereport  # noqa: F401
 
@@ -17,66 +14,18 @@ wires this in via its own root ``conftest.py``::
         env_var="STORY_SIM_LIVE_TRIALS",
     )
 
-Any live test that wants trial recording/repetition then adds
-``live_trial`` to its own parameter list. The fixture yields a
-:class:`LiveTrial` -- ``.number``, the 1-indexed trial number, and a
-settable ``.id`` a test assigns its own project-specific pointer to
-*where the full detail for this trial actually lives* (a session trace
-file path, a trace UUID, ...). This module deliberately doesn't try to
-capture that detail itself (stdout, a traceback, ...): a live test's own
-full turn-by-turn record already exists elsewhere (e.g.
-story-simulator's own ``.live_test_traces/<uuid>.jsonl``, one file per
-session) and is far more useful reconstructed and read there -- even
-published as its own artifact when investigating a specific failure --
-than flattened into a CSV cell. The CSV row is just an index:
-did this trial pass, and which trace does it point to. The motivating
-case: a write-accuracy live test asking a model to record a fact (e.g.
-where a car parked) and checking the write landed correctly -- exactly
-the kind of thing that's flaky enough to need a pass *rate*, not one
-pass/fail (story-simulator's own
-``TestLiveWalkthrough.test_scenario_resolves_correctly``, its
-parking-scenario write-accuracy check, is a real example):
+A test taking ``live_trial`` as a parameter reruns ``env_var``-many
+times (default 1). The fixture yields a :class:`LiveTrial` (``.number``,
+and a settable ``.id`` for the test's own pointer to where this trial's
+full detail lives, e.g. a session trace path -- optional, blank if
+unset). Each trial appends one row (``commit``/``passed``/
+``live_test_id``/``timestamp``) to ``<results_dir>/<test name>.csv``.
 
-    @pytest.mark.live
-    def test_scenario_resolves_correctly(self, tmp_path, live_trial):
-        with create_session(...) as session:
-            live_trial.id = str(session.trace_path)
-            ...
-
-A test that never sets ``.id`` just records an empty one -- setting it
-is optional, not required to get trial repetition/recording at all.
-
-Running with ``STORY_SIM_LIVE_TRIALS=5 uv run pytest ... -m live`` then
-collects and runs that test 5 times (``test_foo[trial1]`` ..
-``test_foo[trial5]``); a bare invocation (env var unset) runs it once,
-same as before this fixture existed. Each trial appends one row --
-``commit``/``passed``/``live_test_id``/``timestamp`` -- to
-``<results_dir>/<test name>.csv`` (one file per logical test, shared
-across all its trials; create ``results_dir`` as a gitignored directory,
-matching this project's own ``.live_test_traces/`` convention).
-
-Two module-level pieces are needed, not just a fixture, since neither
-half of the job is something a fixture can do alone:
-
-- "How many times to collect this test" is a collection-time decision
-  (``pytest_generate_tests``), decided once per test session before any
-  fixture runs.
-- "Did this specific trial pass" needs pytest's own run outcome, which
-  isn't otherwise visible from inside a fixture -- ``pytest_runtest_makereport``
-  stashes each phase's ``TestReport`` onto the test item (the same
-  stash-the-report-on-the-item idiom the pytest docs themselves describe:
-  https://docs.pytest.org/en/stable/example/simple.html#making-test-result-information-available-in-fixtures).
-  That hook has nothing live-trial-specific about it -- any fixture
-  wanting a test's own outcome needs the exact same stash -- so it's a
-  plain module-level function here, not produced by the factory: a
-  downstream project defining its own copy of this same hook elsewhere
-  would collide with this one, so this is the one instance to import
-  instead of writing a second.
-
-Per-test override of the trial count (e.g. a single test always running
-5 trials regardless of the env var) isn't supported -- every test
-requesting ``live_trial`` in one session runs the same number of trials,
-resolved once at collection time.
+``pytest_generate_tests`` (parametrizes the trial count at collection
+time) and ``pytest_runtest_makereport`` (stashes each phase's
+``TestReport`` on the item so a fixture can see pass/fail -- exported
+directly since it isn't live-trial-specific) must both be assigned under
+those exact names in a ``conftest.py`` for pytest to discover them as hooks.
 """
 
 from __future__ import annotations
@@ -98,11 +47,8 @@ _CSV_FIELDS = ["commit", "passed", "live_test_id", "timestamp"]
 class LiveTrial:
     """The `live_trial` fixture's own yielded value.
 
-    `number` is the 1-indexed trial number (informational -- most tests
-    can ignore it). `id`, settable by the test body itself, is this
-    project's own live-test identifier for this trial -- whatever traces
-    it back to more detail than a bare pass/fail. Recorded verbatim in
-    the CSV's `live_test_id` column; left blank if the test never sets it.
+    `number` is the 1-indexed trial number. `id`, optionally set by the
+    test, is recorded verbatim as the CSV's `live_test_id`.
     """
 
     number: int
@@ -111,11 +57,8 @@ class LiveTrial:
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    """Stash each phase's own `TestReport` onto `item` as `rep_<phase>`
-    (`rep_setup`/`rep_call`/`rep_teardown`), so a fixture's teardown can
-    read `item.rep_call` -- the run outcome isn't otherwise visible from
-    inside a fixture. See this module's own docstring for why this is a
-    plain function, not something `make_live_trial_fixture` produces.
+    """Stash each phase's `TestReport` onto `item` as `rep_<phase>`, so a
+    fixture's teardown can read `item.rep_call` for the run outcome.
     """
     outcome = yield
     report = outcome.get_result()
@@ -123,11 +66,7 @@ def pytest_runtest_makereport(item, call):
 
 
 def _git_commit(repo_root: Path) -> str:
-    """Best-effort current commit hash for `repo_root`; "unknown" if it
-    can't be read (a shallow clone missing HEAD, a non-git checkout, an
-    unexpected git failure, ...) -- never raises, since a trial's own
-    pass/fail must still be recorded either way.
-    """
+    """Best-effort current commit hash for `repo_root`; "unknown" on failure."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -169,25 +108,13 @@ def make_live_trial_fixture(
     """Build a `(live_trial_fixture, pytest_generate_tests)` pair for
     repeated, CSV-recorded live-test runs.
 
-    `results_dir`: where each test's own `<test name>.csv` lands --
-    typically a downstream project's own gitignored directory.
-    `repo_root`: passed to `git rev-parse HEAD` for the CSV's `commit`
-    column -- the downstream project's own repo (whose code is actually
-    under test), not emc2p's own.
-    `env_var`: how many trials to run per test requesting this fixture,
-    read once at collection time (e.g. `STORY_SIM_LIVE_TRIALS=5`) --
-    falls back to `default_reps` (1, today's plain single-run behavior)
-    when unset, same resolution style as
-    `responder_fixture.make_responder_fixture`.
-    `fixture_name`: the registered fixture's own name -- override if a
-    project already has its own `live_trial`-named fixture.
+    `results_dir`: where each test's `<test name>.csv` lands.
+    `repo_root`: repo `git rev-parse HEAD` is read from, for the `commit` column.
+    `env_var`: trial count, read once at collection time (falls back to `default_reps`, 1).
+    `fixture_name`: override if a project already has its own `live_trial`.
 
-    Both returned callables must be assigned at module level in the
-    downstream project's own root `conftest.py` under exactly these
-    names (`live_trial`/`pytest_generate_tests`, or whatever local names
-    match how the project's tests request/pytest discovers them) --
-    `pytest_generate_tests` is a hook pytest only discovers by that exact
-    name in a `conftest.py`.
+    Both return values must be assigned under exactly those names in a
+    project's `conftest.py` -- pytest only discovers `pytest_generate_tests` by that name.
     """
 
     def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
