@@ -3,6 +3,18 @@
 See README.md for what this project is and its development basics
 (`uv`, `uv run pytest`, the `.githooks` pre-commit hook).
 
+## Commit and push immediately, don't batch or wait for a prompt
+
+Commit (and push) each meaningful change as soon as it's made, rather
+than batching several turns' edits together or waiting for explicit
+go-ahead first. This project is worked on primarily through ephemeral
+cloud/remote sessions now, not long-running local ones -- uncommitted
+work sitting in a container risks being lost outright when it's
+reclaimed, and diff-based tooling (e.g. the `PreToolUse` hooks in
+`.claude/hooks/`) is keyed off git's own state, so batching multiple
+turns' changes into one eventual commit can also cause such a check to
+silently miss what actually changed turn-by-turn.
+
 ## Three test tiers, by cost
 
 - `uv run pytest` (default, no flags) -- fast (~20s). Tests that go
