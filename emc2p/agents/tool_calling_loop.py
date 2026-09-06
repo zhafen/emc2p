@@ -81,7 +81,7 @@ REGISTRAR_TOOL_SPECS: list[dict[str, Any]] = [
             "description": (
                 "Merge entity-first YAML into the registry. Each component needs a "
                 "leading `- ` list item to attach to an existing aliased entity, e.g. "
-                '"car_a:\\n    - state:\\n        value: parked". A bare mapping (no '
+                '"widget_1:\\n    - color:\\n        value: blue". A bare mapping (no '
                 "leading `- `) is silently accepted but records nothing at all."
             ),
             "parameters": {
