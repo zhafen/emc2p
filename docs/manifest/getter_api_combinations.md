@@ -153,69 +153,140 @@ and single-field cases.
 (Each also has both `implementation_details.interface` and `.implementation`
 as-is, per the note that axis isn't a branching one.)
 
-## Coverage assessment: existing candidate solutions
+## Solution evaluation
 
-Both `getter_api_solutions` candidates are sketched only against
-`error_handling` (their own examples: `safe_` prefix vs. `raise_errors=False`).
-Neither says anything yet about the other five axes. Going through the
-axes against what each *approach* (not just its one sketched example)
-could plausibly extend to:
+`getter_api_solutions` is a set of **mechanisms for selecting one axis's
+value**, not complete getter APIs in themselves. The real API will very
+likely hybridize several of them, using a different mechanism per axis
+(or per group of axes). This section evaluates each mechanism against
+each requirement axis, as input to deciding *how* to hybridize — it
+doesn't commit to one hybrid combination.
 
-- **`error_handling`** (2 values): both candidates cover this cleanly —
-  it's a boolean behavior flag, and both a name-prefix (`safe_get_...`)
-  and an argument (`raise_errors=False`) express a boolean naturally.
-- **`scd_data`** (2 values): not sketched by either, but both extend
-  easily by the same pattern (`history_get_...` vs. `history=True`) —
-  no coverage gap in kind, just in that neither wrote the example down.
-- **`entity_specification_method`** (3 values): this isn't a boolean —
-  it's *which kind of value* identifies the entity. `..._via_argument`
-  handles it naturally (differently-typed/named kwargs, or a single
-  smart argument). `..._via_method_name` also has a plausible idiom
-  (`get_by_id`/`get_by_path`/`get_by_alias`), but this is the first axis
-  where the method-name approach starts adding a whole word per call
-  rather than a flag.
-- **`output_granularity` × `output_format` × `output_singularity`**
-  (the 20 shapes above): **neither candidate addresses this at all**, and
-  it's where nearly all 216 combinations' variation actually lives. This
-  matters because, unlike `error_handling`/`scd_data`, these three axes
-  jointly determine the *return type* of the call (a table vs. a nested
-  dict vs. a row/column collection vs. a scalar vs. pretty-printed text)
-  — qualitatively different objects, not a behavioral flag on the same
-  object. Neither sketch's example generalizes to this axis group as-is:
-  - `..._via_method_name`, taken literally, would need a distinct method
-    name per one of the 20 shapes (e.g. `get_component_table`,
-    `get_entity_first_dict`, `get_field_collection`,
-    `get_pretty_printed_table`, `get_scalar_field`, ...) — plausible in
-    isolation (real APIs do name methods by return shape), but stacking
-    the other axes' prefixes on top of that
-    (`safe_history_get_pretty_printed_field_collection_by_alias`)
-    produces an unwieldy, hard-to-discover method per full combination —
-    up to 216 names if taken to its conclusion.
-  - `..._via_argument`, taken literally, would need one generic `get()`
-    whose return type depends on argument values rather than the call
-    signature — workable at runtime but weak for static typing/IDE
-    autocomplete, since the shape isn't visible in the method name at all.
+### The mechanisms
 
-### Gap: a third candidate is needed for the shape axes
+- **`method_name`** — the axis value is baked into the method's own name
+  as a word/prefix/suffix, e.g. `safe_get_...`.
+- **`argument`** — the axis value is an explicit named parameter on the
+  call, e.g. `raise_errors=False`.
+- **`chained_accessor`** — a fluent chain of narrowing sub-objects/
+  properties selects the axis value before the terminal call, e.g.
+  `registry.entities.current.safe.get_by_alias(...)`.
+- **`type_based_dispatch`** — the *type* of a single positional argument,
+  not its name or an explicit flag, determines the axis value, e.g.
+  passing an `EntityAlias("foo")` object vs. a plain `entity_id` int lets
+  the same `get()` infer `entity_specification_method` from what was
+  handed to it.
+- **`result_object`** — the getter always returns one generic/lazy
+  result, and the axis value is chosen afterward via a method/property on
+  that result rather than an argument to the call itself, e.g.
+  `get_component(...).to_pandas()` / `.pretty_print()`.
+- **`configuration_object`** — several axis choices are bundled into one
+  settings/spec object, built once and reused across calls, e.g.
+  `get(entity, options=GetterOptions(scd="current", raise_errors=False))`.
 
-Neither existing candidate, extended straightforwardly, covers the
-`output_granularity`/`output_format`/`output_singularity` group well on
-its own. The natural fix is a **hybrid**: use distinct method names for
-the 20 *shapes* (since those determine return type, and a handful of
-well-named methods is exactly what method-name-based dispatch is good
-at), and use arguments/prefixes for the three orthogonal modifiers
-(`scd_data`, `error_handling`, `entity_specification_method`), since those
-are flags/typed-inputs on top of a fixed return type rather than
-different return types themselves. This is recorded as a new
-`hybrid_method_name_and_argument` solution candidate in `emc2p.yaml`.
-Once a concrete leaf format is picked within a shape's `output_format`
-category, that choice (e.g. `ibis_tables` vs. `pandas_dataframes` within
-`tabular_output_formats`) would most naturally be its own argument too,
-alongside the orthogonal modifiers.
+### Axis-by-axis fit
+
+**`output_granularity`** (raw_data / components_selection /
+entities_selection / field_selection) — the most fundamental choice:
+which data dimension you're even querying along, closest to picking
+which operation to run at all, since each value needs different
+companion arguments.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | good | Distinct verbs read naturally: `get_raw_table()`, `get_components()`, `get_entities()`, `get_fields()`. |
+| argument | poor | Burying "which fundamentally different operation" in a value (`granularity="components"`) is a classic sign it should be separate methods instead. |
+| chained_accessor | good | `registry.raw` / `.components` / `.entities` / `.fields` as sub-namespaces is the typed/discoverable version of method_name — IDE autocomplete lists the four. |
+| type_based_dispatch | poor | Granularity is a choice of *what operation*, not something inferable from one argument's type within a fixed operation. |
+| result_object | poor | Granularity determines what other arguments are even needed, so it can't be deferred to after the call. |
+| configuration_object | poor | Same problem as argument — hides the most consequential choice inside a generic bag of options. |
+
+**`output_format` × `output_singularity`** (tabular / row_or_column /
+constant / entity_first / pretty_printed; single / multiple) — the
+*shape of the returned object* for an already-fixed granularity; many
+formats can validly represent the same selected data, and singularity is
+often a consequence of selection size rather than an independent choice.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | moderate | Workable (`get_components_as_dataframe()`), but stacking a segment per format/singularity on top of the other axes' segments gets unwieldy fast. |
+| argument | good | `format=IbisTables` fits naturally since many leaf formats can share one call signature otherwise. |
+| chained_accessor | moderate | `registry.components.as_pandas.get(...)` is plausible but format is usually the *last* decision, so chaining it in beforehand reads backwards. |
+| type_based_dispatch | poor | No natural "argument whose type implies desired output type" distinct from just passing the type as a value (which is really `argument`). |
+| result_object | good | The strongest fit of any pairing here: return one lazy/generic result and let `.to_pandas()` / `.to_dict()` / `.pretty_print()` pick the format after the fact — sidesteps the method-name stacking problem entirely. For singularity specifically, this mechanism doesn't apply (see below). |
+| configuration_object | moderate | Reasonable (`options.format=...`) but no better than argument. |
+
+Singularity specifically also has a distinctive option: it can often be
+**inferred for free** from how the entity/component selector was shaped
+(a single ID vs. a list of IDs already implies singular vs. plural),
+rather than declared as its own explicit axis value at all — see
+`type_based_dispatch`/`argument` fit below, which differs from the
+format-only assessment above.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | good | Explicit and safe when the API wants to force a shape regardless of actual selection size, e.g. `get_single_component()` asserting exactly one. |
+| argument | moderate | `singular=True` works but is often redundant with what the selector's own cardinality already implies. |
+| chained_accessor | poor | Feels heavy for what's usually a boolean toggle. |
+| type_based_dispatch | good | Passing one ID vs. a collection of IDs as the entity specifier already implies singular vs. plural for free — no separate declaration needed. |
+| result_object | poor | Like granularity, singularity changes what the immediate return even contains, so it can't be deferred. |
+| configuration_object | moderate | Same as argument, no strong advantage. |
+
+**`scd_data`** (full_history / current_data) — a straightforward
+boolean-ish behavior toggle on an already-fixed shape.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | moderate–good | `get_history_...()` vs. a plain default works, at the cost of one more name segment. |
+| argument | good | `history=True` / `scd="current"` is very natural. |
+| chained_accessor | good | `registry.history.get(...)` reads like a mode switch, works well. |
+| type_based_dispatch | poor | No natural "value whose type implies history mode." |
+| result_object | moderate | Once current-vs-history is decided it changes what rows even come back (a time axis or not), so deferring feels backwards — though a `.as_of(timestamp)` result method for one specific query is plausible without fully generalizing. |
+| configuration_object | good | Bundles cleanly alongside `error_handling`. |
+
+**`error_handling`** (raises_errors / returns_empty_or_null_objects) —
+also a clean boolean-ish behavior toggle; this axis motivated both
+original candidates.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | good | `safe_get_...()` is idiomatic (the original example). |
+| argument | good | `raise_errors=False` is idiomatic (the other original example). |
+| chained_accessor | moderate | `registry.safe.get(...)` is plausible but unusual for what's normally a call-site concern rather than a standing mode. |
+| type_based_dispatch | poor | No natural type-implies-error-mode reading. |
+| result_object | poor–moderate | By the time a result object exists, an error would already have needed not to be raised to get one; a per-field `.get_or_default()` is imaginable but doesn't generalize to the whole call. |
+| configuration_object | good | Bundles cleanly alongside `scd_data`. |
+
+**`entity_specification_method`** (entity_id / entity_path /
+entity_alias) — a *type of input value* ("which kind of key"), not a
+behavior flag.
+
+| mechanism | fit | why |
+|---|---|---|
+| method_name | good | `get_by_id()` / `get_by_path()` / `get_by_alias()` is idiomatic and common in real APIs. |
+| argument | good | Named kwargs (`entity_id=` / `entity_path=` / `entity_alias=`), or one `entity=` argument with runtime type-checking, both work. |
+| chained_accessor | moderate | `registry.by_alias.get(...)` is plausible but less idiomatic than a method suffix for "which key type," since it's specific to one call rather than a broad standing mode. |
+| type_based_dispatch | good | The best fit for this axis specifically: a single argument whose type (a plain `str`/`int` vs. a dedicated `EntityAlias`/`EntityPath` wrapper) determines which specification method was used, with no separate flag at all. |
+| result_object | poor | Purely an input-side concern; nothing to defer to the result. |
+| configuration_object | moderate | Workable but no better than argument. |
+
+### Reading the table
+
+No single mechanism wins across all axes, which confirms the premise:
+`output_granularity` wants `method_name`/`chained_accessor` (it's really
+"which operation," not a flag); `output_format` wants `result_object`;
+`output_singularity` is often inferable via `type_based_dispatch` rather
+than needing its own explicit value; `scd_data`/`error_handling` are
+happy with `argument`/`configuration_object`/`chained_accessor` more or
+less interchangeably; and `entity_specification_method` wants
+`type_based_dispatch` or `method_name`. Deciding the actual hybrid — which
+mechanism(s) to commit to per axis, and how the resulting call sites
+read once all six choices are combined — is the next step, not resolved
+here.
 
 `implementation_details.implementation` (the mechanics: how joins,
 collapsing to current-per-entity, and alias path resolution actually
-work under the hood) remains unaddressed by all three candidates — that's
-expected per the requirement's own framing (fitting a concrete
+work under the hood) remains unaddressed by every mechanism above —
+that's expected per the requirement's own framing (fitting a concrete
 implementation is solution-design work, not part of picking the
 interface shape).

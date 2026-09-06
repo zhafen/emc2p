@@ -183,25 +183,50 @@ getter_api_design:
                     Easiest to use but hardest to implement. Requires path resolution.
                 - requirement
     getter_api_solutions:
+        data:
+            - description: >
+                Each entry here is one mechanism for how a caller selects a single
+                axis's value, not a complete getter API on its own -- the actual
+                API will very likely hybridize several of these, using a
+                different mechanism per axis (or per group of axes) rather than
+                one mechanism for everything. See
+                docs/manifest/getter_api_combinations.md for an axis-by-axis
+                evaluation of how well each mechanism fits each requirement axis,
+                as input to deciding how to hybridize them.
+            - requirement
         parameter_specification_via_method_name:
             - description: >
-                For example, the "safe_" prefix in front of a method means that method
-                will not raise errors.
+                The axis value is baked into the method's own name as a
+                word/prefix/suffix. For example, the "safe_" prefix in front of a
+                method means that method will not raise errors.
         parameter_specification_via_argument:
             - description: >
-                For example, passing raise_errors=False as an argument means that call
-                will not raise errors.
-        hybrid_method_name_and_argument:
+                The axis value is passed as an explicit named parameter on the
+                call. For example, passing raise_errors=False as an argument
+                means that call will not raise errors.
+        parameter_specification_via_chained_accessor:
             - description: >
-                Method name picks the output_granularity/output_format/
-                output_singularity shape (these three jointly determine the return
-                type -- a table vs. a series/dict/list vs. a scalar -- so a
-                distinct, discoverable method per shape suits them, e.g.
-                get_field_series() vs. get_scalar_field()); arguments carry the
-                three orthogonal modifiers -- scd_data, error_handling,
-                entity_specification_method -- since those are flags/typed inputs
-                on a fixed return type rather than different return types
-                themselves, e.g. get_field_series(history=True, raises_errors=False,
-                entity_alias=...). See docs/manifest/getter_api_combinations.md for
-                why neither single-mechanism candidate covers the shape axes well
-                on its own.
+                A fluent chain of narrowing sub-objects/properties selects the
+                axis value before the terminal call, e.g.
+                registry.entities.current.safe.get_by_alias(...) rather than one
+                flat method name or a kwarg.
+        parameter_specification_via_type_based_dispatch:
+            - description: >
+                The type of a single positional argument -- not its name or an
+                explicit flag -- determines which axis value applies. E.g.
+                passing an EntityAlias("foo") object vs. a plain entity_id int
+                lets the same get() infer entity_specification_method from what
+                was handed to it, with no separate flag needed.
+        parameter_specification_via_result_object:
+            - description: >
+                The getter always returns one generic/lazy result object, and the
+                axis value is chosen afterward via a method/property called on
+                that result rather than an argument to the getter call itself,
+                e.g. get_component(...).to_pandas() / .pretty_print().
+        parameter_specification_via_configuration_object:
+            - description: >
+                Several axis choices are bundled into one settings/spec object,
+                built once and reused across calls, e.g.
+                get(entity, options=GetterOptions(scd="current",
+                raise_errors=False)), rather than separate individual kwargs
+                repeated at every call site.
