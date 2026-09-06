@@ -99,13 +99,21 @@ getter_api_design:
             constant_output_formats:
                 - description: Output for all base types, e.g. string, int, etc.
                 - requirement
-            single_version_of_output:
+        output_singularity:
+            data:
                 - description: >
-                    For each case where data is output at a given granularity, we want
-                    to handle the special "single" case that has output one level down.
-                    For example, if we're looking at multiple components where our
-                    entity_selection is a single entity, we don't want a tabular output,
-                    but instead a row-like output format.
+                    A modifier on whichever output_format is chosen (e.g. "ibis_tables,
+                    singular" vs. "ibis_tables, plural"), not a peer alternative within
+                    output_format's own format-category list. For each case where data
+                    is output at a given granularity, we want to handle the special
+                    "single" case that has output one level down. For example, if we're
+                    looking at multiple components where our entity_selection is a
+                    single entity, we don't want a tabular output, but instead a
+                    row-like output format.
+                - requirement
+            single_version_of_output:
+                - requirement
+            multiple_version_of_output:
                 - requirement
         scd_data:
             data:
