@@ -34,6 +34,16 @@ getter_api_design:
                 will not be relevant (e.g. tabular_output_format for one field on one
                 entity), and we want to focus solution coverage on requirement
                 combinations that are more likely to be used.
+
+                The full, pruned enumeration of these combinations (212 total) is
+                written out in docs/manifest/getter_api_combinations.md, along with
+                an assessment of how well getter_api_solutions covers them. Kept as
+                a separate file rather than inline here for the same reason
+                history.yaml is separate: it isn't itself a requirement/solution,
+                just supporting detail. Manually enumerated, not auto-generated --
+                see zhafen/iacs#108 for why a general combinatorial-generation
+                mechanism (a requirement_combination component plus a recursive
+                resolver) was scoped out as overengineering for a problem hit once.
             - requirement
         implementation_details:
             data:
@@ -159,3 +169,17 @@ getter_api_design:
             - description: >
                 For example, passing raise_errors=False as an argument means that call
                 will not raise errors.
+        hybrid_method_name_and_argument:
+            - description: >
+                Method name picks the output_granularity/output_format/
+                output_singularity shape (these three jointly determine the return
+                type -- a table vs. a series/dict/list vs. a scalar -- so a
+                distinct, discoverable method per shape suits them, e.g.
+                get_field_series() vs. get_scalar_field()); arguments carry the
+                three orthogonal modifiers -- scd_data, error_handling,
+                entity_specification_method -- since those are flags/typed inputs
+                on a fixed return type rather than different return types
+                themselves, e.g. get_field_series(history=True, raises_errors=False,
+                entity_alias=...). See docs/manifest/getter_api_combinations.md for
+                why neither single-mechanism candidate covers the shape axes well
+                on its own.
