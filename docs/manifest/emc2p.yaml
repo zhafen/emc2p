@@ -35,13 +35,15 @@ getter_api_design:
                 entity), and we want to focus solution coverage on requirement
                 combinations that are more likely to be used.
 
-                The full, pruned enumeration of these combinations (212 total) is
-                written out in docs/manifest/getter_api_combinations.md, along with
-                an assessment of how well getter_api_solutions covers them. Kept as
-                a separate file rather than inline here for the same reason
-                history.yaml is separate: it isn't itself a requirement/solution,
-                just supporting detail. Manually enumerated, not auto-generated --
-                see zhafen/iacs#108 for why a general combinatorial-generation
+                The full, pruned enumeration of these combinations (100 total,
+                treating output_format at its top level only for now -- not its
+                individual leaf formats) is written out in
+                docs/manifest/getter_api_combinations.md, along with an assessment
+                of how well getter_api_solutions covers them. Kept as a separate
+                file rather than inline here for the same reason history.yaml is
+                separate: it isn't itself a requirement/solution, just supporting
+                detail. Manually enumerated, not auto-generated -- see
+                zhafen/iacs#108 for why a general combinatorial-generation
                 mechanism (a requirement_combination component plus a recursive
                 resolver) was scoped out as overengineering for a problem hit once.
             - requirement

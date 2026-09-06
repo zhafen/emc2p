@@ -7,7 +7,16 @@ coverage should focus on what's actually likely to be used.
 
 `implementation_details.interface`/`.implementation` aren't a branching
 axis — every combination below includes both as-is (see the note on that
-entity). They're omitted from the listing rather than repeated 212 times.
+entity). They're omitted from the listing rather than repeated 100 times.
+
+`output_format` is treated at its top level only for now
+(`tabular_output_formats` / `row_or_column_output_formats` /
+`constant_output_formats`), not its individual leaf formats
+(`ibis_tables`, `pandas_dataframes`, `pandas_series`, `dictionary_of_values`,
+`list_of_values`). Picking a concrete leaf per category — and any
+leaf-specific fit issues that come with it (e.g. `list_of_values`
+"assumes IDs at same indices," so it only fits an ID-aligned collection,
+not a field-name-aligned one) — is deferred to solution design.
 
 ## Structure
 
@@ -15,17 +24,17 @@ Three of the six axes — `scd_data`, `error_handling`,
 `entity_specification_method` — are fully independent of the other three
 *and* of each other: every value of one combines meaningfully with every
 value of the others, for (almost) every "shape" below. So rather than
-flattening the full cross product into ~212 near-duplicate lines, this is
-factored as: **shape** (`output_granularity` × `output_format` ×
+flattening the full cross product into ~100 near-duplicate lines, this is
+factored as: **shape** (`output_granularity` × `output_format` category ×
 `output_singularity`, pruned for relevance) × **modifiers** (`scd_data` ×
 `error_handling` × `entity_specification_method`). Both factors are listed
 in full below; their cross product is still every combination — nothing is
-hidden behind a resolver, it's just not typed out 212 times by hand.
+hidden behind a resolver, it's just not typed out 100 times by hand.
 
 ### The 12 orthogonal modifier combinations (apply to every shape except `raw_data`'s)
 
 `entity_specification_method` doesn't apply to `raw_data` (see below), so
-`raw_data`'s shapes cross only the 4 `scd_data` × `error_handling`
+`raw_data`'s shape crosses only the 4 `scd_data` × `error_handling`
 combinations, not all 12.
 
 1. full_history + raises_errors + entity_id
@@ -46,7 +55,7 @@ combinations, not all 12.
 
 ## Shapes, by `output_granularity`
 
-### `raw_data` — 2 shapes × 4 modifiers = 8 combinations
+### `raw_data` — 1 shape × 4 modifiers = 4 combinations
 
 Access to a whole component table, unfiltered, as stored. No selection
 happens, so `output_singularity` doesn't apply (there's no single item to
@@ -54,40 +63,30 @@ collapse to); no entity is targeted by id/path/alias either, so
 `entity_specification_method` doesn't apply. Only a tabular format makes
 sense for "the whole table."
 
-- `raw_data` + `ibis_tables`
-- `raw_data` + `pandas_dataframes`
+- `raw_data` + `tabular_output_formats`
 
-### `components_selection` — 5 shapes × 12 modifiers = 60 combinations
+### `components_selection` — 2 shapes × 12 modifiers = 24 combinations
 
 Choosing which component(s) to join on `entity_id`, across entities.
 Multiple components chosen is naturally tabular (entities × components).
 A single component collapses one level down per `output_singularity`'s
-own note, to a value-per-entity row/column format — entity-ID-indexed, so
-all three `row_or_column` formats fit, `list_of_values` included.
-Tabular-for-single and row/column-for-multiple are excluded as exactly
-the shape mismatch the requirement's note warns about.
+own note, to a value-per-entity row/column format. Tabular-for-single and
+row/column-for-multiple are excluded as exactly the shape mismatch the
+requirement's note warns about.
 
-- `components_selection` + `multiple_version_of_output` + `ibis_tables`
-- `components_selection` + `multiple_version_of_output` + `pandas_dataframes`
-- `components_selection` + `single_version_of_output` + `pandas_series`
-- `components_selection` + `single_version_of_output` + `dictionary_of_values`
-- `components_selection` + `single_version_of_output` + `list_of_values`
+- `components_selection` + `multiple_version_of_output` + `tabular_output_formats`
+- `components_selection` + `single_version_of_output` + `row_or_column_output_formats`
 
-### `entities_selection` — 4 shapes × 12 modifiers = 48 combinations
+### `entities_selection` — 2 shapes × 12 modifiers = 24 combinations
 
 Symmetric to `components_selection`: multiple entities selected is
 tabular (rows = entities). A single entity collapses to a row-like format
-representing that one entity's values — but this time it's
-component/field-name-indexed, not entity-ID-indexed, so `list_of_values`
-(which "assumes IDs at same indices") doesn't fit; only `pandas_series`
-and `dictionary_of_values` do.
+representing that one entity's values.
 
-- `entities_selection` + `multiple_version_of_output` + `ibis_tables`
-- `entities_selection` + `multiple_version_of_output` + `pandas_dataframes`
-- `entities_selection` + `single_version_of_output` + `pandas_series`
-- `entities_selection` + `single_version_of_output` + `dictionary_of_values`
+- `entities_selection` + `multiple_version_of_output` + `tabular_output_formats`
+- `entities_selection` + `single_version_of_output` + `row_or_column_output_formats`
 
-### `field_selection` — 8 shapes × 12 modifiers = 96 combinations
+### `field_selection` — 4 shapes × 12 modifiers = 48 combinations
 
 Choosing which field(s), within component(s), to retrieve. Two
 sub-dimensions are bundled into the one `output_singularity` axis here:
@@ -95,26 +94,20 @@ how many fields, and (implicitly) how many entities the call resolves to.
 
 Multiple fields across multiple entities is tabular. Multiple fields
 resolving to one entity is a row-like format keyed by field/component
-name — not ID-aligned, so `list_of_values` is excluded (same reasoning as
-`entities_selection`, single).
+name.
 
-A single field across multiple entities is ID-aligned, so all three
-`row_or_column` formats fit. A single field resolving to a single entity
-collapses all the way to a scalar — this is exactly the "one field on one
-entity" case the requirement's own note calls irrelevant *for a tabular
-format*; here it's `constant_output_formats`, not tabular, which is the
-whole point.
+A single field across multiple entities is a row-like format keyed by
+entity. A single field resolving to a single entity collapses all the way
+to a scalar — this is exactly the "one field on one entity" case the
+requirement's own note calls irrelevant *for a tabular format*; here it's
+`constant_output_formats`, not tabular, which is the whole point.
 
-- `field_selection` + `multiple_version_of_output` + `ibis_tables`
-- `field_selection` + `multiple_version_of_output` + `pandas_dataframes`
-- `field_selection` + `multiple_version_of_output` + `pandas_series`
-- `field_selection` + `multiple_version_of_output` + `dictionary_of_values`
-- `field_selection` + `single_version_of_output` + `pandas_series`
-- `field_selection` + `single_version_of_output` + `dictionary_of_values`
-- `field_selection` + `single_version_of_output` + `list_of_values`
+- `field_selection` + `multiple_version_of_output` + `tabular_output_formats`
+- `field_selection` + `multiple_version_of_output` + `row_or_column_output_formats`
+- `field_selection` + `single_version_of_output` + `row_or_column_output_formats`
 - `field_selection` + `single_version_of_output` + `constant_output_formats`
 
-## Total: 8 + 60 + 48 + 96 = 212 combinations
+## Total: 4 + 24 + 24 + 48 = 100 combinations
 
 (Each also has both `implementation_details.interface` and `.implementation`
 as-is, per the note that axis isn't a branching one.)
@@ -141,20 +134,21 @@ could plausibly extend to:
   where the method-name approach starts adding a whole word per call
   rather than a flag.
 - **`output_granularity` × `output_format` × `output_singularity`**
-  (the 19 shapes above): **neither candidate addresses this at all**, and
-  it's where nearly all 212 combinations' variation actually lives. This
+  (the 9 shapes above): **neither candidate addresses this at all**, and
+  it's where nearly all 100 combinations' variation actually lives. This
   matters because, unlike `error_handling`/`scd_data`, these three axes
   jointly determine the *return type* of the call (a table vs. a
-  series/dict/list vs. a scalar) — qualitatively different objects, not a
-  behavioral flag on the same object. Neither sketch's example
+  row/column collection vs. a scalar) — qualitatively different objects,
+  not a behavioral flag on the same object. Neither sketch's example
   generalizes to this axis group as-is:
   - `..._via_method_name`, taken literally, would need a distinct method
-    name per one of the 19 shapes (e.g. `get_component_table`,
-    `get_field_series`, `get_scalar_field`, ...) — plausible in isolation
-    (real APIs do name methods by return shape), but stacking the other
-    axes' prefixes on top of that (`safe_history_get_field_series_by_alias`)
-    produces an unwieldy, hard-to-discover method per full combination —
-    up to 212 names if taken to its conclusion.
+    name per one of the 9 shapes (e.g. `get_component_table`,
+    `get_field_collection`, `get_scalar_field`, ...) — plausible in
+    isolation (real APIs do name methods by return shape), but stacking
+    the other axes' prefixes on top of that
+    (`safe_history_get_field_collection_by_alias`) produces an unwieldy,
+    hard-to-discover method per full combination — up to 100 names if
+    taken to its conclusion.
   - `..._via_argument`, taken literally, would need one generic `get()`
     whose return type depends on argument values rather than the call
     signature — workable at runtime but weak for static typing/IDE
@@ -165,13 +159,17 @@ could plausibly extend to:
 Neither existing candidate, extended straightforwardly, covers the
 `output_granularity`/`output_format`/`output_singularity` group well on
 its own. The natural fix is a **hybrid**: use distinct method names for
-the 19 *shapes* (since those determine return type, and a handful of
+the 9 *shapes* (since those determine return type, and a handful of
 well-named methods is exactly what method-name-based dispatch is good
 at), and use arguments/prefixes for the three orthogonal modifiers
 (`scd_data`, `error_handling`, `entity_specification_method`), since those
 are flags/typed-inputs on top of a fixed return type rather than
 different return types themselves. This is recorded as a new
 `hybrid_method_name_and_argument` solution candidate in `emc2p.yaml`.
+Once a concrete leaf format is picked within a shape's `output_format`
+category, that choice (e.g. `ibis_tables` vs. `pandas_dataframes` within
+`tabular_output_formats`) would most naturally be its own argument too,
+alongside the orthogonal modifiers.
 
 `implementation_details.implementation` (the mechanics: how joins,
 collapsing to current-per-entity, and alias path resolution actually
