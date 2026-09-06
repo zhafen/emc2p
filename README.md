@@ -26,7 +26,12 @@ on emc2p and adds its own component definitions and dataflows on top.
   outside `docs/manifest/history.yaml` -- emc2p is meant to stay usable
   by any downstream project, so its own code/tests/docs shouldn't name
   one (see that script's own comments for which name it currently checks
-  for).
+  for) -- and `scripts/check-pr-size.sh` (also run pre-push), a
+  non-blocking nudge when a branch's diff vs. its base grows past 400
+  lines/15 files. A Claude Code session applies `core.hooksPath`
+  automatically on every boot (`.claude/hooks/session-start.sh`), since
+  `.git/config` doesn't survive a fresh container -- the manual command
+  above is only needed for an ordinary local clone.
 
 ### Code style: comments and docstrings
 
