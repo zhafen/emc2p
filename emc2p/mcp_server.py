@@ -180,6 +180,11 @@ class RegistrarSessions:
     ) -> str:
         """Merge entity-first YAML into the registry, run through the same ETL as save files.
 
+        Each component needs a leading `- ` list item to attach to an
+        existing aliased entity, e.g. "widget_1:\n    - color:\n        value: blue".
+        A bare mapping (no leading `- `) is silently accepted but records
+        nothing at all.
+
         Default behavior (`preview` omitted/False, `confirm_token` omitted):
         `yaml_string` merges immediately. `preview=True` opts into a
         two-round-trip alternative instead: don't merge yet, return a
