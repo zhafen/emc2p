@@ -2,8 +2,8 @@
 # PreToolUse(git commit|git push) nudge: warn -- non-blocking -- when the
 # branch's diff vs its base crosses a size threshold, prompting a check
 # on whether the remaining work still belongs in this PR. Mirrors the
-# same hook in story-simulator (added after PR #66 grew to 47 files) and
-# emc2p; this repo's own PR #104 (46 files) is a matching example.
+# same hook in iacs and story-simulator, both of which hit an
+# oversized-PR case that prompted adding it there first.
 set -euo pipefail
 
 MAX_LINES=400
