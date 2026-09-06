@@ -35,7 +35,7 @@ getter_api_design:
                 entity), and we want to focus solution coverage on requirement
                 combinations that are more likely to be used.
 
-                The full, pruned enumeration of these combinations (100 total,
+                The full, pruned enumeration of these combinations (216 total,
                 treating output_format at its top level only for now -- not its
                 individual leaf formats) is written out in
                 docs/manifest/getter_api_combinations.md, along with an assessment
@@ -110,6 +110,26 @@ getter_api_design:
                     - requirement
             constant_output_formats:
                 - description: Output for all base types, e.g. string, int, etc.
+                - requirement
+            entity_first_output_formats:
+                - description: >
+                    JSON-like, nested-dictionary output keyed by entity first (e.g.
+                    {entity_id: {component: value, ...}}), mirroring iacs's
+                    entity-centered (EC) format rather than emc2p's own
+                    component-centered/tabular registry format. Unlike
+                    tabular_output_formats, this stays valid even for raw_data -- a
+                    whole component table can be re-expressed entity-first without
+                    any selection/join happening.
+                - requirement
+            pretty_printed_output_formats:
+                - description: >
+                    Human-readable formatted text (e.g. an ASCII table, a labeled
+                    block for a single entity, a labeled scalar) for direct
+                    display/narration rather than further programmatic processing.
+                    Orthogonal to the other format categories in a different way
+                    than they're orthogonal to each other: it's a rendering choice
+                    that applies regardless of output_granularity/output_singularity,
+                    rather than a structural alternative that only fits some of them.
                 - requirement
         output_singularity:
             data:
