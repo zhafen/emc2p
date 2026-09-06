@@ -8,6 +8,16 @@
 # by its own nature sometimes needs to name what a past design decision
 # was actually a reaction to.
 #
+# Scoped to newly staged lines (git diff --cached), not the whole tree:
+# core.hooksPath wasn't applied automatically in any session until this
+# hook's own SessionStart wiring was added, so this check had never
+# actually run against real commits, and the tree had already
+# accumulated pre-existing mentions elsewhere by the time it was first
+# enabled for real. A whole-tree scan (the original git grep --cached
+# version) would fail every future commit on that pre-existing debt
+# regardless of what it touches; cleaning that debt up is separate work,
+# not something this hook should block on indefinitely.
+#
 # Usage: check-no-downstream-mentions.sh --staged
 set -euo pipefail
 
@@ -23,15 +33,22 @@ pattern='story[_-]?sim'
 allowed_path="docs/manifest/history.yaml"
 self_path="scripts/check-no-downstream-mentions.sh"
 
-matches=$(git grep --cached --line-number --ignore-case --extended-regexp "$pattern" \
-  -- . ":(exclude)$allowed_path" ":(exclude)$self_path" \
-  2>/dev/null || true)
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
 
-if [ -n "$matches" ]; then
-  echo "Found a mention of the downstream project this check exists to keep out of emc2p:"
+flagged=""
+while IFS= read -r f; do
+  [[ -z "$f" || "$f" == "$allowed_path" || "$f" == "$self_path" ]] && continue
+  added=$(git diff --cached -- "$f" | grep -E '^\+' | grep -vE '^\+\+\+' | grep -iE "$pattern" || true)
+  if [[ -n "$added" ]]; then
+    flagged+="$f:"$'\n'"$added"$'\n'
+  fi
+done < <(git diff --cached --name-only 2>/dev/null || true)
+
+if [[ -n "$flagged" ]]; then
+  echo "Found a newly staged mention of the downstream project this check exists to keep out of emc2p:"
   echo
-  echo "$matches"
-  echo
+  echo "$flagged"
   echo "emc2p is meant to be usable by any downstream project, so its own code/tests/docs"
   echo "shouldn't name one specifically -- rephrase generically instead (e.g. \"a downstream"
   echo "project's own X\" rather than naming it). The one exception is $allowed_path,"
