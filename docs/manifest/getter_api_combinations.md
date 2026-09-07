@@ -189,25 +189,135 @@ doesn't commit to one hybrid combination.
 
 ### The mechanisms
 
+Each mechanism's per-axis fit is assessed below, but a mechanism also
+carries *overall* tradeoffs independent of which axis it's applied to --
+these hold across the whole API, not just for one axis's shape:
+
 - **`method_name`** — the axis value is baked into the method's own name
   as a word/prefix/suffix, e.g. `safe_get_...`.
+  - **Pros:** fully discoverable via autocomplete -- the whole behavior
+    is visible right where you look for the method; the call site is
+    self-documenting with nothing to inspect but the name; each name can
+    carry its own concrete return-type annotation with no generics or
+    overloads; an invalid axis-value combination can't be constructed by
+    accident, since each name already *is* one specific valid combination.
+  - **Cons:** doesn't scale -- one method per combination is exactly the
+    combinatorial-explosion problem this whole exercise exists to avoid;
+    shared logic across near-identical method names needs internal
+    delegation to avoid duplication; adding a new axis value means adding
+    or renaming methods across the whole surface; the choice can't be
+    parameterized at runtime (a caller with a variable holding "which
+    format" can't use it without a name-keyed dispatch table, which just
+    re-introduces the indirection this mechanism was meant to avoid).
 - **`argument`** — the axis value is an explicit named parameter on the
   call, e.g. `raise_errors=False`.
+  - **Pros:** scales additively -- a new axis value is just a new valid
+    value for an existing parameter, no new methods; trivially
+    parameterizable at runtime; a familiar, conventional idiom, discoverable
+    via signature/parameter hints; several axes combine into one call
+    without any method proliferation.
+  - **Cons:** the return type isn't visible in the method name, so static
+    typing/autocomplete on the *result* needs `@overload`/`Literal` tricks
+    to recover what a distinct method name gives for free; nonsensical
+    combinations of argument values become constructible unless validated
+    at runtime; many kwargs at once crowd the call site and read less
+    clearly at a glance than a descriptive name.
 - **`chained_accessor`** — a fluent chain of narrowing sub-objects/
   properties selects the axis value before the terminal call, e.g.
   `registry.entities.current.safe.get_by_alias(...)`.
+  - **Pros:** reads like a sentence, with autocomplete guiding each step;
+    spreads axes across an object graph instead of piling them into one
+    signature; each intermediate object can expose only what's valid from
+    there, so a wrong combination may be structurally impossible to write
+    rather than just discouraged.
+  - **Cons:** needs a whole tree of intermediate wrapper classes/objects
+    to build and maintain; chain order is an arbitrary-but-consequential
+    design decision callers have to learn; awkward to parameterize
+    dynamically (picking a chain segment by name needs `getattr`-style
+    indirection); verbose for a one-off call compared to a flat method or
+    kwarg.
 - **`type_based_dispatch`** — the *type* of a single positional argument,
   not its name or an explicit flag, determines the axis value, e.g.
   passing an `EntityAlias("foo")` object vs. a plain `entity_id` int lets
   the same `get()` infer `entity_specification_method` from what was
   handed to it.
+  - **Pros:** zero extra syntax at the call site -- the value the caller
+    already has to construct *is* the signal, nothing more to remember;
+    rules out a class of mismatched-flag bugs (can't pass an id while
+    claiming it's a path); scales to new "kinds of value" by adding
+    wrapper types, no signature changes.
+  - **Cons:** poor discoverability -- nothing in the signature or
+    autocomplete lists which wrapper types exist or what they mean, only
+    docs do; more upfront ceremony for the caller (constructing
+    `EntityAlias(...)` instead of passing a plain value); relies on
+    runtime `isinstance` dispatch, which strains under subclassing or
+    ambiguous plain types; only applies where an axis is inherently "a
+    kind of input value" -- most axes aren't.
 - **`result_object`** — the getter always returns one generic/lazy
   result, and the axis value is chosen afterward via a method/property on
   that result rather than an argument to the call itself, e.g.
   `get_component(...).to_pandas()` / `.pretty_print()`.
+  - **Pros:** decouples fetching from formatting, avoiding a combinatorial
+    explosion for whichever axis it takes on; enables genuine laziness --
+    the underlying data need not be materialized in a given shape until
+    something asks for it; a well-worn, familiar pattern (`requests.Response`,
+    ORM querysets).
+  - **Cons:** adds an indirection step to every call, even the common
+    case (`.to_x()` always required); the result class has to implement
+    and maintain a conversion method per leaf format; an error surfaced at
+    the conversion step can be confusing about whether the fetch or the
+    conversion is at fault; only shines for axes that are genuinely about
+    *format* -- awkward elsewhere per the tables below.
 - **`configuration_object`** — several axis choices are bundled into one
   settings/spec object, built once and reused across calls, e.g.
   `get(entity, options=GetterOptions(scd="current", raise_errors=False))`.
+  - **Pros:** reusable across many calls -- build once, share across a
+    whole pass instead of repeating kwargs; serializable/inspectable as
+    one object (loggable, diffable, passable across boundaries); groups
+    related settings that tend to travel together.
+  - **Cons:** extra ceremony for a one-off call -- constructing an object
+    to set a single flag; if plain kwargs are *also* still allowed for the
+    same axes, there are now two ways to do the same thing; a shared,
+    mutable options object risks action-at-a-distance bugs if reused
+    without realizing a caller upstream mutated it.
+
+### A naming refinement: `get_` vs. `view_` (vs. `raw_`)
+
+`method_name`'s word choice for `data_selection`/`output_singularity` has
+been a generic pluralization so far (`get_entity` vs. `get_entities`).
+[entt](https://github.com/skypjack/entt) and other ECS frameworks already
+have a vocabulary for exactly this distinction, and it's worth borrowing
+rather than reinventing: `registry.get<T>(entity)` fetches one component
+for one already-known entity, while `registry.view<T...>()` returns a
+filterable, iterable range over *many* entities matching a component set
+-- and `registry.storage<T>()` is the raw, unfiltered underlying pool for
+one component type, with no entity filtering at all.
+
+That maps almost exactly onto three things this document already treats
+as distinct: `output_singularity=single_version_of_output` (**get**),
+`output_singularity=multiple_version_of_output` (**view**), and
+`data_selection=raw_data` (**raw**/**storage**) -- the one granularity
+where no singularity axis applies at all, i.e. exactly entt's "raw pool,"
+not a filtered view of it.
+
+Recommendation: when `method_name` is chosen for `output_singularity`,
+use `view_` rather than pluralizing `get_`; keep `get_` for the singular
+case; and consider `raw_`/`storage_` for `raw_data`'s own method names
+regardless of which mechanism carries its other axes. Concretely, the
+verb comes from `output_singularity` (or `raw_data`'s special case), and
+`data_selection`'s own `method_name` contribution is only ever the
+resource noun (`entities`, `components`, `fields`), never the verb.
+
+This isn't just cosmetic -- it resolves a redundancy flagged earlier.
+`data_selection=chained_accessor` combined with
+`output_singularity=method_name` used to produce
+`registry.entities.safe_get_entities_by_alias(...)`, saying "entities"
+twice because the chain already supplied the noun and pluralized `get_`
+supplied it again. With the verb reassigned to `view_` and the noun left
+to `data_selection` alone, the same combination now reads
+`registry.entities.safe_view_by_alias(...)` -- no repetition, and it
+reads more like idiomatic ECS code besides. The candidate table below
+uses this convention throughout.
 
 ### Axis-by-axis fit
 
@@ -331,43 +441,45 @@ Legend: `MN`=method_name, `ARG`=argument, `CHA`=chained_accessor,
 `TBD`=type_based_dispatch, `RES`=result_object,
 `CFG`=configuration_object.
 
-A few rows render a little redundantly by construction, not by
-rendering bug -- e.g. #109's
-`registry.entities.safe_get_entities_by_alias(...)` combines
-`data_selection=chained_accessor` with
-`output_singularity=method_name`, and both independently want to say
-"entities." That's the cross product honestly surfacing an awkward
-pairing rather than something worth hiding.
+Rendered with the `get_`/`view_` naming convention above: whenever
+`output_singularity=method_name`, the verb is `view_` (this fixed
+scenario is always the plural case); `data_selection=method_name`
+contributes only the resource noun (`entities`). An earlier draft of
+this table pluralized `get_` for both roles at once and produced a
+redundant `registry.entities.safe_get_entities_by_alias(...)` for
+`data_selection=chained_accessor` + `output_singularity=method_name`
+(row #109) -- saying "entities" twice. Splitting verb from noun this way
+resolves it: that row now reads `registry.entities.safe_view_by_alias(...)`.
 
 | # | data_selection | output_format | output_singularity | scd_data | error_handling | entity_specification_method | example |
 |---|---|---|---|---|---|---|---|
-| 1 | MN | ARG | MN | ARG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], format="tabular", scd="current")` |
-| 2 | MN | ARG | MN | ARG | MN | ARG | `registry.safe_get_entities(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
-| 3 | MN | ARG | MN | ARG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
-| 4 | MN | ARG | MN | ARG | ARG | MN | `registry.get_entities_by_alias(["hero", "villain"], format="tabular", scd="current", raise_errors=False)` |
-| 5 | MN | ARG | MN | ARG | ARG | ARG | `registry.get_entities(format="tabular", scd="current", raise_errors=False, entity_alias=["hero", "villain"])` |
-| 6 | MN | ARG | MN | ARG | ARG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", raise_errors=False)` |
-| 7 | MN | ARG | MN | ARG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
-| 8 | MN | ARG | MN | ARG | CFG | ARG | `registry.get_entities(format="tabular", scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
-| 9 | MN | ARG | MN | ARG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
-| 10 | MN | ARG | MN | CHA | MN | MN | `registry.current.safe_get_entities_by_alias(["hero", "villain"], format="tabular")` |
-| 11 | MN | ARG | MN | CHA | MN | ARG | `registry.current.safe_get_entities(format="tabular", entity_alias=["hero", "villain"])` |
-| 12 | MN | ARG | MN | CHA | MN | TBD | `registry.current.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular")` |
-| 13 | MN | ARG | MN | CHA | ARG | MN | `registry.current.get_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False)` |
-| 14 | MN | ARG | MN | CHA | ARG | ARG | `registry.current.get_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"])` |
-| 15 | MN | ARG | MN | CHA | ARG | TBD | `registry.current.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False)` |
-| 16 | MN | ARG | MN | CHA | CFG | MN | `registry.current.get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(raise_errors=False))` |
-| 17 | MN | ARG | MN | CHA | CFG | ARG | `registry.current.get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
-| 18 | MN | ARG | MN | CHA | CFG | TBD | `registry.current.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(raise_errors=False))` |
-| 19 | MN | ARG | MN | CFG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current"))` |
-| 20 | MN | ARG | MN | CFG | MN | ARG | `registry.safe_get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
-| 21 | MN | ARG | MN | CFG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current"))` |
-| 22 | MN | ARG | MN | CFG | ARG | MN | `registry.get_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
-| 23 | MN | ARG | MN | CFG | ARG | ARG | `registry.get_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
-| 24 | MN | ARG | MN | CFG | ARG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
-| 25 | MN | ARG | MN | CFG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
-| 26 | MN | ARG | MN | CFG | CFG | ARG | `registry.get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
-| 27 | MN | ARG | MN | CFG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
+| 1 | MN | ARG | MN | ARG | MN | MN | `registry.safe_view_entities_by_alias(["hero", "villain"], format="tabular", scd="current")` |
+| 2 | MN | ARG | MN | ARG | MN | ARG | `registry.safe_view_entities(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
+| 3 | MN | ARG | MN | ARG | MN | TBD | `registry.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
+| 4 | MN | ARG | MN | ARG | ARG | MN | `registry.view_entities_by_alias(["hero", "villain"], format="tabular", scd="current", raise_errors=False)` |
+| 5 | MN | ARG | MN | ARG | ARG | ARG | `registry.view_entities(format="tabular", scd="current", raise_errors=False, entity_alias=["hero", "villain"])` |
+| 6 | MN | ARG | MN | ARG | ARG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", raise_errors=False)` |
+| 7 | MN | ARG | MN | ARG | CFG | MN | `registry.view_entities_by_alias(["hero", "villain"], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
+| 8 | MN | ARG | MN | ARG | CFG | ARG | `registry.view_entities(format="tabular", scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
+| 9 | MN | ARG | MN | ARG | CFG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
+| 10 | MN | ARG | MN | CHA | MN | MN | `registry.current.safe_view_entities_by_alias(["hero", "villain"], format="tabular")` |
+| 11 | MN | ARG | MN | CHA | MN | ARG | `registry.current.safe_view_entities(format="tabular", entity_alias=["hero", "villain"])` |
+| 12 | MN | ARG | MN | CHA | MN | TBD | `registry.current.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular")` |
+| 13 | MN | ARG | MN | CHA | ARG | MN | `registry.current.view_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False)` |
+| 14 | MN | ARG | MN | CHA | ARG | ARG | `registry.current.view_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"])` |
+| 15 | MN | ARG | MN | CHA | ARG | TBD | `registry.current.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False)` |
+| 16 | MN | ARG | MN | CHA | CFG | MN | `registry.current.view_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(raise_errors=False))` |
+| 17 | MN | ARG | MN | CHA | CFG | ARG | `registry.current.view_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
+| 18 | MN | ARG | MN | CHA | CFG | TBD | `registry.current.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(raise_errors=False))` |
+| 19 | MN | ARG | MN | CFG | MN | MN | `registry.safe_view_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current"))` |
+| 20 | MN | ARG | MN | CFG | MN | ARG | `registry.safe_view_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
+| 21 | MN | ARG | MN | CFG | MN | TBD | `registry.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current"))` |
+| 22 | MN | ARG | MN | CFG | ARG | MN | `registry.view_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
+| 23 | MN | ARG | MN | CFG | ARG | ARG | `registry.view_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
+| 24 | MN | ARG | MN | CFG | ARG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
+| 25 | MN | ARG | MN | CFG | CFG | MN | `registry.view_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
+| 26 | MN | ARG | MN | CFG | CFG | ARG | `registry.view_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
+| 27 | MN | ARG | MN | CFG | CFG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
 | 28 | MN | ARG | TBD | ARG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], format="tabular", scd="current")` |
 | 29 | MN | ARG | TBD | ARG | MN | ARG | `registry.safe_get_entities(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
 | 30 | MN | ARG | TBD | ARG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
@@ -395,33 +507,33 @@ pairing rather than something worth hiding.
 | 52 | MN | ARG | TBD | CFG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
 | 53 | MN | ARG | TBD | CFG | CFG | ARG | `registry.get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
 | 54 | MN | ARG | TBD | CFG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
-| 55 | MN | RES | MN | ARG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], scd="current").to_table()` |
-| 56 | MN | RES | MN | ARG | MN | ARG | `registry.safe_get_entities(scd="current", entity_alias=["hero", "villain"]).to_table()` |
-| 57 | MN | RES | MN | ARG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
-| 58 | MN | RES | MN | ARG | ARG | MN | `registry.get_entities_by_alias(["hero", "villain"], scd="current", raise_errors=False).to_table()` |
-| 59 | MN | RES | MN | ARG | ARG | ARG | `registry.get_entities(scd="current", raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
-| 60 | MN | RES | MN | ARG | ARG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", raise_errors=False).to_table()` |
-| 61 | MN | RES | MN | ARG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
-| 62 | MN | RES | MN | ARG | CFG | ARG | `registry.get_entities(scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 63 | MN | RES | MN | ARG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
-| 64 | MN | RES | MN | CHA | MN | MN | `registry.current.safe_get_entities_by_alias(["hero", "villain"]).to_table()` |
-| 65 | MN | RES | MN | CHA | MN | ARG | `registry.current.safe_get_entities(entity_alias=["hero", "villain"]).to_table()` |
-| 66 | MN | RES | MN | CHA | MN | TBD | `registry.current.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")]).to_table()` |
-| 67 | MN | RES | MN | CHA | ARG | MN | `registry.current.get_entities_by_alias(["hero", "villain"], raise_errors=False).to_table()` |
-| 68 | MN | RES | MN | CHA | ARG | ARG | `registry.current.get_entities(raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
-| 69 | MN | RES | MN | CHA | ARG | TBD | `registry.current.get_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False).to_table()` |
-| 70 | MN | RES | MN | CHA | CFG | MN | `registry.current.get_entities_by_alias(["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 71 | MN | RES | MN | CHA | CFG | ARG | `registry.current.get_entities(entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 72 | MN | RES | MN | CHA | CFG | TBD | `registry.current.get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(raise_errors=False)).to_table()` |
-| 73 | MN | RES | MN | CFG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 74 | MN | RES | MN | CFG | MN | ARG | `registry.safe_get_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 75 | MN | RES | MN | CFG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current")).to_table()` |
-| 76 | MN | RES | MN | CFG | ARG | MN | `registry.get_entities_by_alias(["hero", "villain"], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
-| 77 | MN | RES | MN | CFG | ARG | ARG | `registry.get_entities(raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 78 | MN | RES | MN | CFG | ARG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
-| 79 | MN | RES | MN | CFG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
-| 80 | MN | RES | MN | CFG | CFG | ARG | `registry.get_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
-| 81 | MN | RES | MN | CFG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 55 | MN | RES | MN | ARG | MN | MN | `registry.safe_view_entities_by_alias(["hero", "villain"], scd="current").to_table()` |
+| 56 | MN | RES | MN | ARG | MN | ARG | `registry.safe_view_entities(scd="current", entity_alias=["hero", "villain"]).to_table()` |
+| 57 | MN | RES | MN | ARG | MN | TBD | `registry.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
+| 58 | MN | RES | MN | ARG | ARG | MN | `registry.view_entities_by_alias(["hero", "villain"], scd="current", raise_errors=False).to_table()` |
+| 59 | MN | RES | MN | ARG | ARG | ARG | `registry.view_entities(scd="current", raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
+| 60 | MN | RES | MN | ARG | ARG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", raise_errors=False).to_table()` |
+| 61 | MN | RES | MN | ARG | CFG | MN | `registry.view_entities_by_alias(["hero", "villain"], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
+| 62 | MN | RES | MN | ARG | CFG | ARG | `registry.view_entities(scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 63 | MN | RES | MN | ARG | CFG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
+| 64 | MN | RES | MN | CHA | MN | MN | `registry.current.safe_view_entities_by_alias(["hero", "villain"]).to_table()` |
+| 65 | MN | RES | MN | CHA | MN | ARG | `registry.current.safe_view_entities(entity_alias=["hero", "villain"]).to_table()` |
+| 66 | MN | RES | MN | CHA | MN | TBD | `registry.current.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")]).to_table()` |
+| 67 | MN | RES | MN | CHA | ARG | MN | `registry.current.view_entities_by_alias(["hero", "villain"], raise_errors=False).to_table()` |
+| 68 | MN | RES | MN | CHA | ARG | ARG | `registry.current.view_entities(raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
+| 69 | MN | RES | MN | CHA | ARG | TBD | `registry.current.view_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False).to_table()` |
+| 70 | MN | RES | MN | CHA | CFG | MN | `registry.current.view_entities_by_alias(["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 71 | MN | RES | MN | CHA | CFG | ARG | `registry.current.view_entities(entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 72 | MN | RES | MN | CHA | CFG | TBD | `registry.current.view_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(raise_errors=False)).to_table()` |
+| 73 | MN | RES | MN | CFG | MN | MN | `registry.safe_view_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 74 | MN | RES | MN | CFG | MN | ARG | `registry.safe_view_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 75 | MN | RES | MN | CFG | MN | TBD | `registry.safe_view_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current")).to_table()` |
+| 76 | MN | RES | MN | CFG | ARG | MN | `registry.view_entities_by_alias(["hero", "villain"], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
+| 77 | MN | RES | MN | CFG | ARG | ARG | `registry.view_entities(raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 78 | MN | RES | MN | CFG | ARG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
+| 79 | MN | RES | MN | CFG | CFG | MN | `registry.view_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 80 | MN | RES | MN | CFG | CFG | ARG | `registry.view_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 81 | MN | RES | MN | CFG | CFG | TBD | `registry.view_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
 | 82 | MN | RES | TBD | ARG | MN | MN | `registry.safe_get_entities_by_alias(["hero", "villain"], scd="current").to_table()` |
 | 83 | MN | RES | TBD | ARG | MN | ARG | `registry.safe_get_entities(scd="current", entity_alias=["hero", "villain"]).to_table()` |
 | 84 | MN | RES | TBD | ARG | MN | TBD | `registry.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
@@ -449,33 +561,33 @@ pairing rather than something worth hiding.
 | 106 | MN | RES | TBD | CFG | CFG | MN | `registry.get_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
 | 107 | MN | RES | TBD | CFG | CFG | ARG | `registry.get_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
 | 108 | MN | RES | TBD | CFG | CFG | TBD | `registry.get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
-| 109 | CHA | ARG | MN | ARG | MN | MN | `registry.entities.safe_get_entities_by_alias(["hero", "villain"], format="tabular", scd="current")` |
-| 110 | CHA | ARG | MN | ARG | MN | ARG | `registry.entities.safe_get_entities(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
-| 111 | CHA | ARG | MN | ARG | MN | TBD | `registry.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
-| 112 | CHA | ARG | MN | ARG | ARG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], format="tabular", scd="current", raise_errors=False)` |
-| 113 | CHA | ARG | MN | ARG | ARG | ARG | `registry.entities.get_entities(format="tabular", scd="current", raise_errors=False, entity_alias=["hero", "villain"])` |
-| 114 | CHA | ARG | MN | ARG | ARG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", raise_errors=False)` |
-| 115 | CHA | ARG | MN | ARG | CFG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
-| 116 | CHA | ARG | MN | ARG | CFG | ARG | `registry.entities.get_entities(format="tabular", scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
-| 117 | CHA | ARG | MN | ARG | CFG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
-| 118 | CHA | ARG | MN | CHA | MN | MN | `registry.current.entities.safe_get_entities_by_alias(["hero", "villain"], format="tabular")` |
-| 119 | CHA | ARG | MN | CHA | MN | ARG | `registry.current.entities.safe_get_entities(format="tabular", entity_alias=["hero", "villain"])` |
-| 120 | CHA | ARG | MN | CHA | MN | TBD | `registry.current.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular")` |
-| 121 | CHA | ARG | MN | CHA | ARG | MN | `registry.current.entities.get_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False)` |
-| 122 | CHA | ARG | MN | CHA | ARG | ARG | `registry.current.entities.get_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"])` |
-| 123 | CHA | ARG | MN | CHA | ARG | TBD | `registry.current.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False)` |
-| 124 | CHA | ARG | MN | CHA | CFG | MN | `registry.current.entities.get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(raise_errors=False))` |
-| 125 | CHA | ARG | MN | CHA | CFG | ARG | `registry.current.entities.get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
-| 126 | CHA | ARG | MN | CHA | CFG | TBD | `registry.current.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(raise_errors=False))` |
-| 127 | CHA | ARG | MN | CFG | MN | MN | `registry.entities.safe_get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current"))` |
-| 128 | CHA | ARG | MN | CFG | MN | ARG | `registry.entities.safe_get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
-| 129 | CHA | ARG | MN | CFG | MN | TBD | `registry.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current"))` |
-| 130 | CHA | ARG | MN | CFG | ARG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
-| 131 | CHA | ARG | MN | CFG | ARG | ARG | `registry.entities.get_entities(format="tabular", raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
-| 132 | CHA | ARG | MN | CFG | ARG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
-| 133 | CHA | ARG | MN | CFG | CFG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
-| 134 | CHA | ARG | MN | CFG | CFG | ARG | `registry.entities.get_entities(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
-| 135 | CHA | ARG | MN | CFG | CFG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
+| 109 | CHA | ARG | MN | ARG | MN | MN | `registry.entities.safe_view_by_alias(["hero", "villain"], format="tabular", scd="current")` |
+| 110 | CHA | ARG | MN | ARG | MN | ARG | `registry.entities.safe_view(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
+| 111 | CHA | ARG | MN | ARG | MN | TBD | `registry.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
+| 112 | CHA | ARG | MN | ARG | ARG | MN | `registry.entities.view_by_alias(["hero", "villain"], format="tabular", scd="current", raise_errors=False)` |
+| 113 | CHA | ARG | MN | ARG | ARG | ARG | `registry.entities.view(format="tabular", scd="current", raise_errors=False, entity_alias=["hero", "villain"])` |
+| 114 | CHA | ARG | MN | ARG | ARG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", raise_errors=False)` |
+| 115 | CHA | ARG | MN | ARG | CFG | MN | `registry.entities.view_by_alias(["hero", "villain"], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
+| 116 | CHA | ARG | MN | ARG | CFG | ARG | `registry.entities.view(format="tabular", scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
+| 117 | CHA | ARG | MN | ARG | CFG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current", options=GetterOptions(raise_errors=False))` |
+| 118 | CHA | ARG | MN | CHA | MN | MN | `registry.current.entities.safe_view_by_alias(["hero", "villain"], format="tabular")` |
+| 119 | CHA | ARG | MN | CHA | MN | ARG | `registry.current.entities.safe_view(format="tabular", entity_alias=["hero", "villain"])` |
+| 120 | CHA | ARG | MN | CHA | MN | TBD | `registry.current.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")], format="tabular")` |
+| 121 | CHA | ARG | MN | CHA | ARG | MN | `registry.current.entities.view_by_alias(["hero", "villain"], format="tabular", raise_errors=False)` |
+| 122 | CHA | ARG | MN | CHA | ARG | ARG | `registry.current.entities.view(format="tabular", raise_errors=False, entity_alias=["hero", "villain"])` |
+| 123 | CHA | ARG | MN | CHA | ARG | TBD | `registry.current.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False)` |
+| 124 | CHA | ARG | MN | CHA | CFG | MN | `registry.current.entities.view_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(raise_errors=False))` |
+| 125 | CHA | ARG | MN | CHA | CFG | ARG | `registry.current.entities.view(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False))` |
+| 126 | CHA | ARG | MN | CHA | CFG | TBD | `registry.current.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(raise_errors=False))` |
+| 127 | CHA | ARG | MN | CFG | MN | MN | `registry.entities.safe_view_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current"))` |
+| 128 | CHA | ARG | MN | CFG | MN | ARG | `registry.entities.safe_view(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
+| 129 | CHA | ARG | MN | CFG | MN | TBD | `registry.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current"))` |
+| 130 | CHA | ARG | MN | CFG | ARG | MN | `registry.entities.view_by_alias(["hero", "villain"], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
+| 131 | CHA | ARG | MN | CFG | ARG | ARG | `registry.entities.view(format="tabular", raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current"))` |
+| 132 | CHA | ARG | MN | CFG | ARG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", raise_errors=False, options=GetterOptions(scd="current"))` |
+| 133 | CHA | ARG | MN | CFG | CFG | MN | `registry.entities.view_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
+| 134 | CHA | ARG | MN | CFG | CFG | ARG | `registry.entities.view(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
+| 135 | CHA | ARG | MN | CFG | CFG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
 | 136 | CHA | ARG | TBD | ARG | MN | MN | `registry.entities.safe_get_by_alias(["hero", "villain"], format="tabular", scd="current")` |
 | 137 | CHA | ARG | TBD | ARG | MN | ARG | `registry.entities.safe_get(format="tabular", scd="current", entity_alias=["hero", "villain"])` |
 | 138 | CHA | ARG | TBD | ARG | MN | TBD | `registry.entities.safe_get([EntityAlias("hero"), EntityAlias("villain")], format="tabular", scd="current")` |
@@ -503,33 +615,33 @@ pairing rather than something worth hiding.
 | 160 | CHA | ARG | TBD | CFG | CFG | MN | `registry.entities.get_by_alias(["hero", "villain"], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
 | 161 | CHA | ARG | TBD | CFG | CFG | ARG | `registry.entities.get(format="tabular", entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False))` |
 | 162 | CHA | ARG | TBD | CFG | CFG | TBD | `registry.entities.get([EntityAlias("hero"), EntityAlias("villain")], format="tabular", options=GetterOptions(scd="current", raise_errors=False))` |
-| 163 | CHA | RES | MN | ARG | MN | MN | `registry.entities.safe_get_entities_by_alias(["hero", "villain"], scd="current").to_table()` |
-| 164 | CHA | RES | MN | ARG | MN | ARG | `registry.entities.safe_get_entities(scd="current", entity_alias=["hero", "villain"]).to_table()` |
-| 165 | CHA | RES | MN | ARG | MN | TBD | `registry.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
-| 166 | CHA | RES | MN | ARG | ARG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], scd="current", raise_errors=False).to_table()` |
-| 167 | CHA | RES | MN | ARG | ARG | ARG | `registry.entities.get_entities(scd="current", raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
-| 168 | CHA | RES | MN | ARG | ARG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", raise_errors=False).to_table()` |
-| 169 | CHA | RES | MN | ARG | CFG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
-| 170 | CHA | RES | MN | ARG | CFG | ARG | `registry.entities.get_entities(scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 171 | CHA | RES | MN | ARG | CFG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
-| 172 | CHA | RES | MN | CHA | MN | MN | `registry.current.entities.safe_get_entities_by_alias(["hero", "villain"]).to_table()` |
-| 173 | CHA | RES | MN | CHA | MN | ARG | `registry.current.entities.safe_get_entities(entity_alias=["hero", "villain"]).to_table()` |
-| 174 | CHA | RES | MN | CHA | MN | TBD | `registry.current.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")]).to_table()` |
-| 175 | CHA | RES | MN | CHA | ARG | MN | `registry.current.entities.get_entities_by_alias(["hero", "villain"], raise_errors=False).to_table()` |
-| 176 | CHA | RES | MN | CHA | ARG | ARG | `registry.current.entities.get_entities(raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
-| 177 | CHA | RES | MN | CHA | ARG | TBD | `registry.current.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False).to_table()` |
-| 178 | CHA | RES | MN | CHA | CFG | MN | `registry.current.entities.get_entities_by_alias(["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 179 | CHA | RES | MN | CHA | CFG | ARG | `registry.current.entities.get_entities(entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
-| 180 | CHA | RES | MN | CHA | CFG | TBD | `registry.current.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(raise_errors=False)).to_table()` |
-| 181 | CHA | RES | MN | CFG | MN | MN | `registry.entities.safe_get_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 182 | CHA | RES | MN | CFG | MN | ARG | `registry.entities.safe_get_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 183 | CHA | RES | MN | CFG | MN | TBD | `registry.entities.safe_get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current")).to_table()` |
-| 184 | CHA | RES | MN | CFG | ARG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
-| 185 | CHA | RES | MN | CFG | ARG | ARG | `registry.entities.get_entities(raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
-| 186 | CHA | RES | MN | CFG | ARG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
-| 187 | CHA | RES | MN | CFG | CFG | MN | `registry.entities.get_entities_by_alias(["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
-| 188 | CHA | RES | MN | CFG | CFG | ARG | `registry.entities.get_entities(entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
-| 189 | CHA | RES | MN | CFG | CFG | TBD | `registry.entities.get_entities([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 163 | CHA | RES | MN | ARG | MN | MN | `registry.entities.safe_view_by_alias(["hero", "villain"], scd="current").to_table()` |
+| 164 | CHA | RES | MN | ARG | MN | ARG | `registry.entities.safe_view(scd="current", entity_alias=["hero", "villain"]).to_table()` |
+| 165 | CHA | RES | MN | ARG | MN | TBD | `registry.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
+| 166 | CHA | RES | MN | ARG | ARG | MN | `registry.entities.view_by_alias(["hero", "villain"], scd="current", raise_errors=False).to_table()` |
+| 167 | CHA | RES | MN | ARG | ARG | ARG | `registry.entities.view(scd="current", raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
+| 168 | CHA | RES | MN | ARG | ARG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], scd="current", raise_errors=False).to_table()` |
+| 169 | CHA | RES | MN | ARG | CFG | MN | `registry.entities.view_by_alias(["hero", "villain"], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
+| 170 | CHA | RES | MN | ARG | CFG | ARG | `registry.entities.view(scd="current", entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 171 | CHA | RES | MN | ARG | CFG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], scd="current", options=GetterOptions(raise_errors=False)).to_table()` |
+| 172 | CHA | RES | MN | CHA | MN | MN | `registry.current.entities.safe_view_by_alias(["hero", "villain"]).to_table()` |
+| 173 | CHA | RES | MN | CHA | MN | ARG | `registry.current.entities.safe_view(entity_alias=["hero", "villain"]).to_table()` |
+| 174 | CHA | RES | MN | CHA | MN | TBD | `registry.current.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")]).to_table()` |
+| 175 | CHA | RES | MN | CHA | ARG | MN | `registry.current.entities.view_by_alias(["hero", "villain"], raise_errors=False).to_table()` |
+| 176 | CHA | RES | MN | CHA | ARG | ARG | `registry.current.entities.view(raise_errors=False, entity_alias=["hero", "villain"]).to_table()` |
+| 177 | CHA | RES | MN | CHA | ARG | TBD | `registry.current.entities.view([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False).to_table()` |
+| 178 | CHA | RES | MN | CHA | CFG | MN | `registry.current.entities.view_by_alias(["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 179 | CHA | RES | MN | CHA | CFG | ARG | `registry.current.entities.view(entity_alias=["hero", "villain"], options=GetterOptions(raise_errors=False)).to_table()` |
+| 180 | CHA | RES | MN | CHA | CFG | TBD | `registry.current.entities.view([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(raise_errors=False)).to_table()` |
+| 181 | CHA | RES | MN | CFG | MN | MN | `registry.entities.safe_view_by_alias(["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 182 | CHA | RES | MN | CFG | MN | ARG | `registry.entities.safe_view(entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 183 | CHA | RES | MN | CFG | MN | TBD | `registry.entities.safe_view([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current")).to_table()` |
+| 184 | CHA | RES | MN | CFG | ARG | MN | `registry.entities.view_by_alias(["hero", "villain"], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
+| 185 | CHA | RES | MN | CFG | ARG | ARG | `registry.entities.view(raise_errors=False, entity_alias=["hero", "villain"], options=GetterOptions(scd="current")).to_table()` |
+| 186 | CHA | RES | MN | CFG | ARG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], raise_errors=False, options=GetterOptions(scd="current")).to_table()` |
+| 187 | CHA | RES | MN | CFG | CFG | MN | `registry.entities.view_by_alias(["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 188 | CHA | RES | MN | CFG | CFG | ARG | `registry.entities.view(entity_alias=["hero", "villain"], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
+| 189 | CHA | RES | MN | CFG | CFG | TBD | `registry.entities.view([EntityAlias("hero"), EntityAlias("villain")], options=GetterOptions(scd="current", raise_errors=False)).to_table()` |
 | 190 | CHA | RES | TBD | ARG | MN | MN | `registry.entities.safe_get_by_alias(["hero", "villain"], scd="current").to_table()` |
 | 191 | CHA | RES | TBD | ARG | MN | ARG | `registry.entities.safe_get(scd="current", entity_alias=["hero", "villain"]).to_table()` |
 | 192 | CHA | RES | TBD | ARG | MN | TBD | `registry.entities.safe_get([EntityAlias("hero"), EntityAlias("villain")], scd="current").to_table()` |
