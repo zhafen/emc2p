@@ -7,7 +7,7 @@ coverage should focus on what's actually likely to be used.
 
 `implementation_details.interface`/`.implementation` aren't a branching
 axis — every combination below includes both as-is (see the note on that
-entity). They're omitted from the listing rather than repeated 216 times.
+entity). They're omitted from the listing rather than repeated 224 times.
 
 `output_format` is treated at its top level only for now -- five
 categories: `tabular_output_formats`, `row_or_column_output_formats`,
@@ -40,24 +40,41 @@ the shape list rather than just adding one more option to it:
   already fit that pair, rather than being tied to one structural
   category.
 
+## Axes at a glance
+
+The full requirement space before pruning -- every axis and its options,
+not yet crossed into combinations:
+
+| axis | options |
+|---|---|
+| `implementation_details` | `interface`, `implementation` (not branching -- every combination includes both as-is) |
+| `output_granularity` | `raw_data`, `components_selection`, `entities_selection`, `field_selection` |
+| `output_format` | `tabular_output_formats`, `row_or_column_output_formats`, `constant_output_formats`, `entity_first_output_formats`, `pretty_printed_output_formats` |
+| `output_singularity` | `single_version_of_output`, `multiple_version_of_output` |
+| `scd_data` | `full_history`, `current_data` |
+| `error_handling` | `raises_errors`, `returns_empty_or_null_objects` |
+| `entity_specification_method` | `entity_id`, `entity_path`, `entity_alias` |
+
 ## Structure
 
 Three of the six axes — `scd_data`, `error_handling`,
 `entity_specification_method` — are fully independent of the other three
 *and* of each other: every value of one combines meaningfully with every
 value of the others, for (almost) every "shape" below. So rather than
-flattening the full cross product into ~216 near-duplicate lines, this is
+flattening the full cross product into ~224 near-duplicate lines, this is
 factored as: **shape** (`output_granularity` × `output_format` category ×
 `output_singularity`, pruned for relevance) × **modifiers** (`scd_data` ×
 `error_handling` × `entity_specification_method`). Both factors are listed
 in full below; their cross product is still every combination — nothing is
-hidden behind a resolver, it's just not typed out 216 times by hand.
+hidden behind a resolver, it's just not typed out 224 times by hand.
 
-### The 12 orthogonal modifier combinations (apply to every shape except `raw_data`'s)
+### The 12 orthogonal modifier combinations (apply to every shape except two of `raw_data`'s three)
 
-`entity_specification_method` doesn't apply to `raw_data` (see below), so
-`raw_data`'s shapes cross only the 4 `scd_data` × `error_handling`
-combinations, not all 12.
+`entity_specification_method` doesn't apply to whole-table `raw_data`
+access (see below), so `raw_data`'s `tabular_output_formats` and
+`pretty_printed_output_formats` shapes cross only the 4 `scd_data` ×
+`error_handling` combinations, not all 12. `raw_data` +
+`entity_first_output_formats` is the exception -- see below.
 
 1. full_history + raises_errors + entity_id
 2. full_history + raises_errors + entity_path
@@ -77,19 +94,27 @@ combinations, not all 12.
 
 ## Shapes, by `output_granularity`
 
-### `raw_data` — 3 shapes × 4 modifiers = 12 combinations
+### `raw_data` — 3 shapes, 20 combinations
 
 Access to a whole component table, unfiltered, as stored. No selection
-happens, so `output_singularity` doesn't apply (there's no single item to
-collapse to); no entity is targeted by id/path/alias either, so
-`entity_specification_method` doesn't apply. `tabular_output_formats` and
-`entity_first_output_formats` are two structural ways to represent the
-same whole table; `pretty_printed_output_formats` renders either as
-human-readable text.
+happens, so `output_singularity` doesn't apply anywhere in this
+granularity (there's no single item to collapse to).
 
-- `raw_data` + `tabular_output_formats`
-- `raw_data` + `entity_first_output_formats`
-- `raw_data` + `pretty_printed_output_formats`
+For `tabular_output_formats` and `pretty_printed_output_formats`, no
+entity is targeted by id/path/alias either -- the whole table comes back
+as one flat object -- so `entity_specification_method` doesn't apply:
+just the 4 `scd_data` × `error_handling` combinations each.
+
+`entity_first_output_formats` is the exception. Nesting by entity isn't
+only a re-expression of the same whole table -- it's naturally also how
+a caller looks up *one entity's* full raw record across every component,
+by id/path/alias, rather than choosing a component and getting the whole
+column. So `entity_specification_method` does apply here, and this shape
+crosses all 12 modifiers like every other entity-scoped shape below.
+
+- `raw_data` + `tabular_output_formats` -- 4 combinations (`scd_data` × `error_handling` only)
+- `raw_data` + `pretty_printed_output_formats` -- 4 combinations (`scd_data` × `error_handling` only)
+- `raw_data` + `entity_first_output_formats` -- 12 combinations (all three modifier axes)
 
 ### `components_selection` — 5 shapes × 12 modifiers = 60 combinations
 
@@ -148,7 +173,7 @@ and single-field cases.
 - `field_selection` + `single_version_of_output` + `constant_output_formats`
 - `field_selection` + `single_version_of_output` + `pretty_printed_output_formats`
 
-## Total: 12 + 60 + 60 + 84 = 216 combinations
+## Total: 20 + 60 + 60 + 84 = 224 combinations
 
 (Each also has both `implementation_details.interface` and `.implementation`
 as-is, per the note that axis isn't a branching one.)

@@ -35,7 +35,7 @@ getter_api_design:
                 entity), and we want to focus solution coverage on requirement
                 combinations that are more likely to be used.
 
-                The full, pruned enumeration of these combinations (216 total,
+                The full, pruned enumeration of these combinations (224 total,
                 treating output_format at its top level only for now -- not its
                 individual leaf formats) is written out in
                 docs/manifest/getter_api_combinations.md, along with an assessment
