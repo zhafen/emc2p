@@ -543,7 +543,7 @@ class TestUpdate:
             )
         })
 
-        relation_df = r.view_df("relation")
+        relation_df = r.view("relation").to_pandas()
         assert relation_df.iloc[0]["relation.value_eid"] == req_eid
 
 
@@ -583,24 +583,21 @@ class TestViewProxies:
     def _registrar():
         return Registrar.from_manifest("examples/example")
 
-    def test_view_df_matches_registry_view_df(self):
+    def test_view_matches_registry_view(self):
         r = self._registrar()
         pd.testing.assert_frame_equal(
-            r.view_df("description"), r.registry.view_df("description")
+            r.view("description").to_pandas(), r.registry.view("description").to_pandas()
         )
+
+    def test_view_entities_matches_registry_view_entities(self):
+        r = self._registrar()
+        entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
+        assert r.view_entities(entity_id).to_dict() == r.registry.view_entities(entity_id).to_dict()
 
     def test_view_entity_matches_registry_view_entity(self):
         r = self._registrar()
         entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
         assert r.view_entity(entity_id) == r.registry.view_entity(entity_id)
-
-    def test_view_entity_df_matches_registry_view_entity_df(self):
-        r = self._registrar()
-        entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
-        assert (
-            r.view_entity_df(entity_id).keys()
-            == r.registry.view_entity_df(entity_id).keys()
-        )
 
     def test_get_entity_id_matches_registry_get_entity_id(self):
         r = self._registrar()

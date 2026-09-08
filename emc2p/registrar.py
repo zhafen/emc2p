@@ -275,12 +275,20 @@ class Registrar:
         return self._registry.safe_view_current
 
     @property
-    def get_current_value(self):
-        return self._registry.get_current_value
+    def view_entities(self):
+        return self._registry.view_entities
 
     @property
-    def view_df(self):
-        return self._registry.view_df
+    def view_entities_current(self):
+        return self._registry.view_entities_current
+
+    @property
+    def safe_view_entities(self):
+        return self._registry.safe_view_entities
+
+    @property
+    def safe_view_entities_current(self):
+        return self._registry.safe_view_entities_current
 
     @property
     def summarize_components(self):
@@ -293,10 +301,6 @@ class Registrar:
     @property
     def view_entity(self):
         return self._registry.view_entity
-
-    @property
-    def view_entity_df(self):
-        return self._registry.view_entity_df
 
     @property
     def get(self):

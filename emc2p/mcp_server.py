@@ -143,7 +143,7 @@ class RegistrarSessions:
     def view_registry(self, session, component_type: str) -> str:
         """View all recorded data for one component type (e.g. "status", "object")."""
         registrar = self.get_registrar(session)
-        return registrar.view_df(component_type).fillna("null").to_markdown()
+        return registrar.view(component_type).to_pandas().fillna("null").to_markdown()
 
     def view_entity(self, session, entity_id: str) -> str:
         """Return every recorded component instance for a specific entity.
@@ -389,7 +389,7 @@ def _component_write_summary(registrar: Registrar, component_type: str, limit: i
     shape/convention already in use for it.
     """
     try:
-        df = registrar.view_df(component_type)
+        df = registrar.view(component_type).to_pandas()
     except KeyError:
         return f"- {component_type}: declared, but no data written yet."
     if df.empty:
