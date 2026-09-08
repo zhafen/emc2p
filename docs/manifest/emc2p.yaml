@@ -237,3 +237,54 @@ getter_api_design:
                 get(entity, options=GetterOptions(scd="current",
                 raise_errors=False)), rather than separate individual kwargs
                 repeated at every call site.
+    getter_api_decision:
+        data:
+            - description: >
+                The chosen hybrid for the getter API, refined from candidate #59
+                in getter_api_combinations.md's "Candidate final solutions" table
+                through review: data_selection via method_name, but only spelled
+                out where it disambiguates (components_selection keeps the bare
+                existing view/view_current/safe_view/safe_view_current names;
+                entities_selection is new: view_entities/view_entities_current/
+                safe_view_entities/safe_view_entities_current). scd_data and
+                error_handling via method_name (_current suffix, safe_ prefix --
+                revised from #59's argument, for discoverability; this also
+                matches what view_current/safe_view already did). entity_
+                specification_method via one argument, always routed through the
+                existing _resolve_aliases -- named entity, positioned first when
+                it's the only selector (entities_selection) or second after
+                component_type when both exist (components_selection).
+                output_format via result_object (GetterResult.to_table()/
+                .to_pandas(), so far only the tabular_output_formats leaf).
+                output_singularity is ALSO result_object, not method_name:
+                singularity is realized by which GetterResult extraction method
+                the caller calls (.to_dict()/.to_scalar() vs .to_table()/
+                .to_pandas()), not by a separate method name -- so there is no
+                get_entity/get_component/get_current_value; the last of those is
+                fully replaced by e.g. view_current("type.field", entity)
+                .to_scalar(). field_selection isn't a separate mechanism: it
+                rides on the pre-existing component_type dotted "table.field"
+                string convention.
+
+                Breaking change, fixed in the same pass across emc2p, iacs, and
+                story-simulator: view_df, view_entity_df, and get_current_value
+                are removed (not deprecated); view/view_current/safe_view/
+                safe_view_current keep their names but change their second
+                parameter (aliases -> entity) and return type (now GetterResult,
+                not a raw table/DataFrame/None). view_entity is rebuilt on a
+                per-component-type query loop rather than view_entities' single
+                joined query -- an entity with real multi-row history in more
+                than one component type would fan out combinatorially under a
+                cross join, so per-type queries (each already filtered to the
+                entity) are the correct approach there, not just a style choice;
+                the same limitation applies to view_entities/view_entities_current
+                themselves whenever more than one joined component type has more
+                than one un-collapsed row for the same entity (documented on
+                those methods directly, not silently left as a surprise).
+            - solution of: getter_api_requirements.data_selection.entities_selection
+            - solution of: getter_api_requirements.data_selection.components_selection
+            - solution of: getter_api_requirements.output_format.tabular_output_formats
+            - solution of: getter_api_requirements.output_singularity
+            - solution of: getter_api_requirements.scd_data
+            - solution of: getter_api_requirements.error_handling
+            - solution of: getter_api_requirements.entity_specification_method

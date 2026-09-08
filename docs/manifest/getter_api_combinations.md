@@ -676,3 +676,25 @@ work under the hood) remains unaddressed by every mechanism above —
 that's expected per the requirement's own framing (fitting a concrete
 implementation is solution-design work, not part of picking the
 interface shape).
+
+## Decision
+
+**Candidate #59 was the starting point for the chosen solution**, revised
+after review: `scd_data` and `error_handling` also use `method_name`
+(matching row #1's assignment instead of #59's, for discoverability —
+and matching what `view_current`/`safe_view` already did), and
+`output_singularity` uses `result_object` instead of `method_name` —
+singularity is realized by which `GetterResult` extraction method
+(`.to_dict()`/`.to_scalar()` vs. `.to_table()`/`.to_pandas()`) the
+caller calls, not by a separate method name. The solution is applied
+uniformly to both `data_selection` values with a concrete getter today
+(`components_selection` and `entities_selection`), **replacing** rather
+than supplementing the pre-existing
+`view`/`view_current`/`safe_view`/`safe_view_current` (their names stay,
+their second parameter and return type change) — and `get_current_value`/
+`view_df`/`view_entity_df` are removed outright, not deprecated.
+
+See `getter_api_decision` in `emc2p.yaml` for the full record, and
+`emc2p/registry.py` (`GetterResult`, `view_entities`/
+`view_entities_current`/`safe_view_entities`/`safe_view_entities_current`)
+for the implementation.
