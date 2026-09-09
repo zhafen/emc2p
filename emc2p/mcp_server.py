@@ -85,6 +85,7 @@ class RegistrarSessions:
     ):
         self._registrars: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._export_dirs: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+        self._trace_paths: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._time_provider = time_provider or (lambda registrar: None)
         self._export_dirname = export_dirname
         self._export_history_dirname = export_history_dirname
@@ -99,7 +100,13 @@ class RegistrarSessions:
             raise ValueError(f"No registry open for this session yet -- call {self._open_tool_name} first.")
         return self._registrars[session]
 
-    def set_registrar(self, session, registrar: Registrar, export_dir: str | Path | None = None) -> None:
+    def set_registrar(
+        self,
+        session,
+        registrar: Registrar,
+        export_dir: str | Path | None = None,
+        client_trace_path: str | Path | None = None,
+    ) -> None:
         """Register an already-loaded Registrar for `session` directly,
         bypassing `open`'s own manifest_dir-seeding logic.
 
@@ -108,10 +115,27 @@ class RegistrarSessions:
         instance -- e.g. a downstream project's own session-opening tool,
         whose load/seed logic doesn't match `open`'s simpler "merge
         manifest_dir once if empty" behavior.
+
+        `client_trace_path`, if given, is remembered for this session and
+        readable back via `get_trace_path` -- the plumbing
+        `single_shared_trace_file` needs so an in-process responder (e.g.
+        keyed_subagent) can append to the exact same trace_path the
+        connected client's own top-level session is already writing to,
+        instead of a separate file of its own.
         """
         self._registrars[session] = registrar
         if export_dir:
             self._export_dirs[session] = Path(export_dir)
+        if client_trace_path:
+            self._trace_paths[session] = Path(client_trace_path)
+
+    def get_trace_path(self, session) -> Path | None:
+        """Return the client-supplied trace_path recorded for `session` via
+        `set_registrar`, or None if none was ever given -- e.g. a session
+        opened without one, or a fresh subprocess after an idle-disconnect
+        reset (session-scoped state, not persisted -- see CLAUDE.md's
+        disconnect-recovery section)."""
+        return self._trace_paths.get(session)
 
     def open(
         self, session, database_url: str, manifest_dir: str | None = None, export_dir: str | None = None
