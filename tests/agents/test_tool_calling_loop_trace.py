@@ -1,22 +1,18 @@
-"""Gap-revealing live test: can a subagent's own interactions be traced?
+"""Live regression: a subagent's own interactions are traced end to end.
 
 `run_tool_calling_loop` (`emc2p.agents.tool_calling_loop`) is the generic
 in-process "subagent" mechanism `keyed_subagent`-style responders build
-on -- a nested model + tool-calling exchange that currently runs and
-returns only a final string. Nothing about that exchange (which tools it
-called, with what arguments, what came back) is ever written anywhere a
-caller could inspect after the fact, unlike a top-level live session
-(`emc2p.testing.headless_session.HeadlessSession`/`agent_session.py`),
-which always writes a `.jsonl` trace readable by
-`emc2p.testing.render_trace.parse_trace`.
-
-This test specifies the desired capability -- a `trace_path` a caller can
-pass to `run_tool_calling_loop` so the subagent's own tool calls/results
-land in a trace file in the same shape `render_trace` already parses --
-and is expected to fail (`TypeError: unexpected keyword argument
-'trace_path'`) until that capability exists. It is deliberately not
-implemented as part of this change; see the project's tracking issue/PR
-for closing this gap.
+on -- a nested model + tool-calling exchange. Originally a gap-revealing
+test (it used to fail with `TypeError: unexpected keyword argument
+'trace_path'`): `run_tool_calling_loop` now accepts a `trace_path` so the
+subagent's own tool calls/results land in a trace file in the same shape
+`emc2p.testing.render_trace` already parses -- the same tooling used to
+inspect a top-level live session
+(`emc2p.testing.headless_session.HeadlessSession`/`agent_session.py`).
+See tests/agents/test_tool_calling_loop.py's own TestTracePath for the
+fast, non-live mechanics of this same capability (mocked litellm) --
+this test is the real-model confirmation that a genuine DeepSeek
+completion produces trace events in the same shape.
 """
 
 import asyncio
@@ -70,7 +66,7 @@ def test_subagent_tool_calls_are_recorded_to_a_parseable_trace(tmp_path: Path):
             model="deepseek/deepseek-chat",
             dispatch=dispatch,
             tools=_NOTE_TOOL,
-            trace_path=trace_path,  # not yet a real parameter -- see module docstring
+            trace_path=trace_path,
         )
     )
 

@@ -119,6 +119,7 @@ async def run_tool_calling_loop(
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     usage_log_path: Path | None = None,
     on_response: Callable[[Any], None] | None = None,
+    trace_path: Path | None = None,
 ) -> str:
     """Answer `prompt` via `model`, letting it call `tools` (dispatched
     through `dispatch`) as many times as needed before a final text answer.
@@ -139,10 +140,22 @@ async def run_tool_calling_loop(
     usage/cost per call (e.g. accumulating a running total across several
     of these calls) rather than only the best-effort log `usage_log_path`
     writes to disk.
+
+    `trace_path`, if given, appends one JSON line per assistant response
+    and per tool_result -- render_trace's own "simple format" (the same
+    shape `mcp_client_session.py` hand-writes for its top-level turn loop)
+    -- so this call's own tool calls/arguments/results are inspectable
+    afterward via `emc2p.testing.render_trace.parse_trace`, the same way a
+    top-level session's trace already is. Opened in append mode, so a
+    caller wanting one combined trace across several calls (e.g. a nested
+    subagent call sharing its parent's own trace_path) gets that for free
+    by passing the same path.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(model=model, messages=messages, tools=tools)
     _log_usage(response, usage_log_path)
+    if trace_path is not None:
+        _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message))
     if on_response is not None:
         on_response(response)
 
@@ -155,6 +168,7 @@ async def run_tool_calling_loop(
         if not tool_calls:
             return message.content or ""
         for tool_call in tool_calls:
+            is_error = False
             try:
                 arguments = json.loads(tool_call.function.arguments or "{}")
                 result = dispatch(tool_call.function.name, arguments)
@@ -162,15 +176,53 @@ async def run_tool_calling_loop(
                     result = await result
             except Exception as exc:  # noqa: BLE001 -- feed the error back, don't crash the loop
                 result = f"Error: {exc}"
+                is_error = True
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result)})
+            if trace_path is not None:
+                _append_trace_event(
+                    trace_path,
+                    {
+                        "type": "tool_result",
+                        "name": tool_call.function.name,
+                        "content": str(result),
+                        "is_error": is_error,
+                    },
+                )
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
+        if trace_path is not None:
+            _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message))
         if on_response is not None:
             on_response(response)
 
     # Reached only by falling out of the `for` loop above (no `break`
     # anywhere) once `max_iterations` is exhausted without the model stopping.
     return response.choices[0].message.content or ""
+
+
+def _assistant_trace_event(message: Any) -> dict[str, Any]:
+    """render_trace's "simple format" shape for one assistant response.
+
+    Arguments are parsed back into a dict where possible (matching what
+    `render_trace._normalize_simple_format` already does on read) rather
+    than left as the raw JSON string litellm hands back -- a malformed
+    arguments string (the model's own mistake, not this function's to
+    fix) is kept as-is instead of raising, since a trace write should
+    never be what turns a recoverable model error into a hard failure.
+    """
+    tool_calls = []
+    for tc in message.tool_calls or []:
+        try:
+            arguments = json.loads(tc.function.arguments or "{}")
+        except json.JSONDecodeError:
+            arguments = tc.function.arguments
+        tool_calls.append({"name": tc.function.name, "arguments": arguments})
+    return {"type": "assistant", "content": message.content or "", "tool_calls": tool_calls}
+
+
+def _append_trace_event(trace_path: Path, event: dict[str, Any]) -> None:
+    with trace_path.open("a") as f:
+        f.write(json.dumps(event) + "\n")
 
 
 def _log_usage(response: Any, usage_log_path: Path | None) -> None:

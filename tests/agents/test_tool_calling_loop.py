@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("litellm", reason="requires the 'agents' extra")
 
 from emc2p.agents.tool_calling_loop import run_tool_calling_loop  # noqa: E402
+from emc2p.testing.render_trace import ToolCall, parse_trace  # noqa: E402
 
 
 class _FakeToolCall:
@@ -168,3 +169,91 @@ def test_no_usage_log_written_when_path_omitted(monkeypatch, tmp_path):
         run_tool_calling_loop("what happened?", model="test-model", dispatch=lambda n, a: "x")
     )
     assert list(tmp_path.iterdir()) == []
+
+
+class TestTracePath:
+    """trace_path_kwarg: run_tool_calling_loop's own recorded trace,
+    parseable by the exact same render_trace.parse_trace a top-level
+    session's trace already goes through.
+    """
+
+    def test_no_trace_file_written_when_path_omitted(self, monkeypatch, tmp_path):
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        asyncio.run(
+            run_tool_calling_loop("what happened?", model="test-model", dispatch=lambda n, a: "x")
+        )
+        assert list(tmp_path.iterdir()) == []
+
+    def test_tool_call_and_result_are_recorded_and_parseable(self, monkeypatch, tmp_path):
+        tool_call = _FakeToolCall("call_1", "view_entity", {"entity_id": "car_a"})
+        _queue_responses(
+            monkeypatch,
+            [
+                _FakeResponse(_FakeMessage(tool_calls=[tool_call])),
+                _FakeResponse(_FakeMessage(content="parked, per view_entity.")),
+            ],
+        )
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        result = asyncio.run(
+            run_tool_calling_loop(
+                "what happened?",
+                model="test-model",
+                dispatch=lambda name, arguments: "car_a: position=driveway",
+                trace_path=trace_path,
+            )
+        )
+
+        assert result == "parked, per view_entity."
+        assert trace_path.exists()
+        turns = parse_trace(trace_path)
+        assert [t.kind for t in turns] == ["assistant", "tool_result", "assistant"]
+        assert turns[0].tool_calls == [ToolCall(name="view_entity", arguments={"entity_id": "car_a"}, decoded=[])]
+        assert turns[1].tool_name == "view_entity"
+        assert turns[1].text == "car_a: position=driveway"
+        assert turns[1].is_error is False
+        assert turns[2].text == "parked, per view_entity."
+
+    def test_dispatch_error_recorded_as_an_error_tool_result(self, monkeypatch, tmp_path):
+        tool_call = _FakeToolCall("call_1", "update_registry", {"yaml_string": "bad"})
+        _queue_responses(
+            monkeypatch,
+            [
+                _FakeResponse(_FakeMessage(tool_calls=[tool_call])),
+                _FakeResponse(_FakeMessage(content="retried and finished.")),
+            ],
+        )
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        def dispatch(name, arguments):
+            raise ValueError("unknown component type")
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?", model="test-model", dispatch=dispatch, trace_path=trace_path
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        tool_result_turns = [t for t in turns if t.kind == "tool_result"]
+        assert len(tool_result_turns) == 1
+        assert tool_result_turns[0].is_error is True
+        assert tool_result_turns[0].text == "Error: unknown component type"
+
+    def test_appends_rather_than_overwrites_an_existing_trace_file(self, monkeypatch, tmp_path):
+        """A caller sharing one trace_path across several calls (e.g. a
+        nested subagent call writing into its parent's own trace) must
+        never lose what was already there."""
+        trace_path = tmp_path / "shared_trace.jsonl"
+        trace_path.write_text(json.dumps({"type": "user", "content": "earlier turn"}) + "\n")
+
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?", model="test-model", dispatch=lambda n, a: "x", trace_path=trace_path
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert [t.kind for t in turns] == ["user", "assistant"]
+        assert turns[0].text == "earlier turn"
