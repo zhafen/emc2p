@@ -154,7 +154,7 @@ class TestNativeSubagentSubtrace:
     """render_trace_follows_task_notification: a task_notification event
     naming an output_file gets that file's own isSidechain-tagged turns
     attached onto the matching ToolCall's subtrace -- confirmed real by
-    tests/test_subagent_sidechain_spike.py (story-simulator); this is the
+    tests/test_native_subagent_sidechain.py (story-simulator); this is the
     parsing/rendering side of that finding.
     """
 

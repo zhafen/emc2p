@@ -164,7 +164,7 @@ def _attach_subagent_subtrace(event: dict[str, Any], tool_calls_by_id: dict[str,
     """A `task_notification` event names the `tool_use_id` that spawned a
     native subagent (the connected CLI's own "Agent" tool) and an
     `output_file` holding that subagent's own isSidechain-tagged turns --
-    confirmed by tests/test_subagent_sidechain_spike.py (story-simulator).
+    confirmed by tests/test_native_subagent_sidechain.py (story-simulator).
     Attach the parsed result onto the matching
     ToolCall's own `subtrace`, so a renderer can show it nested exactly
     the way a keyed_subagent call's own subtrace would be.
