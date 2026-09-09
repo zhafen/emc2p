@@ -150,6 +150,146 @@ class TestBase64PayloadDecoding:
         assert turns[0].tool_calls[0].decoded == []
 
 
+class TestNativeSubagentSubtrace:
+    """render_trace_follows_task_notification: a task_notification event
+    naming an output_file gets that file's own isSidechain-tagged turns
+    attached onto the matching ToolCall's subtrace -- confirmed real by
+    tests/test_native_subagent_sidechain.py (story-simulator); this is the
+    parsing/rendering side of that finding.
+    """
+
+    def _write_output_file(self, tmp_path: Path) -> Path:
+        # A subagent's own output_file: the same anthropic stream-json
+        # shape, each line isSidechain-tagged (not itself load-bearing for
+        # parsing -- only tool_use_id/output_file on the *parent's* own
+        # task_notification event drive the attachment).
+        output_path = tmp_path / "subagent_output.jsonl"
+        output_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "user",
+                            "isSidechain": True,
+                            "agentId": "agent_1",
+                            "message": {"role": "user", "content": "Compute 17 * 23."},
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "isSidechain": True,
+                            "agentId": "agent_1",
+                            "message": {
+                                "role": "assistant",
+                                "content": [{"type": "text", "text": "391"}],
+                            },
+                        }
+                    ),
+                ]
+            )
+        )
+        return output_path
+
+    def _parent_trace(self, output_path: Path) -> str:
+        return "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "text", "text": "I'll delegate this."},
+                                {
+                                    "type": "tool_use",
+                                    "id": "toolu_agent_1",
+                                    "name": "Agent",
+                                    "input": {"prompt": "Compute 17 * 23."},
+                                },
+                            ],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "task_notification",
+                        "tool_use_id": "toolu_agent_1",
+                        "output_file": str(output_path),
+                        "status": "completed",
+                        "summary": "391",
+                    }
+                ),
+                json.dumps({"type": "result", "result": "The answer is 391."}),
+            ]
+        )
+
+    def test_subtrace_attached_to_the_matching_tool_call(self, tmp_path: Path):
+        output_path = self._write_output_file(tmp_path)
+        turns = parse_trace(_write(tmp_path, self._parent_trace(output_path)))
+
+        assistant_turn = turns[0]
+        [agent_call] = assistant_turn.tool_calls
+        assert agent_call.name == "Agent"
+        assert agent_call.subtrace is not None
+        assert [t.kind for t in agent_call.subtrace] == ["user", "assistant"]
+        assert agent_call.subtrace[1].text == "391"
+
+    def test_ordinary_tool_call_has_no_subtrace(self, tmp_path: Path):
+        trace = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "toolu_1", "name": "view_entity", "input": {}}
+                    ],
+                },
+            }
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        assert turns[0].tool_calls[0].subtrace is None
+
+    def test_missing_output_file_is_ignored_not_fatal(self, tmp_path: Path):
+        missing = tmp_path / "does_not_exist.jsonl"
+        turns = parse_trace(_write(tmp_path, self._parent_trace(missing)))
+        assert turns[0].tool_calls[0].subtrace is None
+
+    def test_notification_for_an_unknown_tool_use_id_is_ignored(self, tmp_path: Path):
+        output_path = self._write_output_file(tmp_path)
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"role": "assistant", "content": [{"type": "text", "text": "no tool use here"}]},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "task_notification",
+                        "tool_use_id": "toolu_never_seen",
+                        "output_file": str(output_path),
+                    }
+                ),
+                json.dumps({"type": "result", "result": "done"}),
+            ]
+        )
+        # Must not raise even though no ToolCall matches this notification.
+        turns = parse_trace(_write(tmp_path, trace))
+        assert [t.kind for t in turns] == ["assistant", "final"]
+        assert turns[0].tool_calls == []
+
+    def test_rendered_html_includes_a_nested_subagent_trace_block(self, tmp_path: Path):
+        output_path = self._write_output_file(tmp_path)
+        turns = parse_trace(_write(tmp_path, self._parent_trace(output_path)))
+        output = render_html(turns, title="t", source_label="s")
+        assert "subagent trace" in output
+        assert "391" in output
+
+
 class TestRenderHtml:
     def test_renders_without_error_and_includes_key_content(self, tmp_path: Path):
         turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))

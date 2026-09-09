@@ -38,6 +38,10 @@ class ToolCall:
     # (label, decoded value) pairs -- any argument value that turned out
     # to be base64-encoded JSON, decoded for display alongside the raw call.
     decoded: list[tuple[str, Any]] = dataclasses.field(default_factory=list)
+    # A native subagent's own turns, if this tool_use spawned one (see
+    # render_trace_follows_task_notification / _attach_subagent_subtrace) --
+    # None for an ordinary tool call that never spawned a subagent.
+    subtrace: "list[Turn] | None" = None
 
 
 @dataclasses.dataclass
@@ -99,14 +103,21 @@ def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
     """The raw Anthropic Messages `stream-json` protocol.
 
     `tool_names` maps `tool_use` id to name, since the later
-    `tool_result` block only carries the id.
+    `tool_result` block only carries the id. `tool_calls_by_id` maps that
+    same id to the actual `ToolCall` object built for it, so a later
+    `task_notification` event (see `_attach_subagent_subtrace`) can attach
+    a native subagent's own turns directly onto it.
     """
     turns: list[Turn] = []
     tool_names: dict[str, str] = {}
+    tool_calls_by_id: dict[str, ToolCall] = {}
     for event in events:
         etype = event.get("type")
         if etype == "result":
             turns.append(Turn(kind="final", text=str(event.get("result", ""))))
+            continue
+        if etype == "system" and event.get("subtype") == "task_notification":
+            _attach_subagent_subtrace(event, tool_calls_by_id)
             continue
         message = event.get("message")
         if etype == "system" or message is None:
@@ -119,9 +130,12 @@ def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
             for b in blocks:
                 if b.get("type") != "tool_use":
                     continue
-                tool_names[b.get("id", "")] = b.get("name", "")
+                tool_use_id = b.get("id", "")
+                tool_names[tool_use_id] = b.get("name", "")
                 args = b.get("input") or {}
-                tool_calls.append(ToolCall(name=b.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
+                tool_call = ToolCall(name=b.get("name", ""), arguments=args, decoded=_decode_blobs(args))
+                tool_calls_by_id[tool_use_id] = tool_call
+                tool_calls.append(tool_call)
             turns.append(Turn(kind="assistant", text="\n".join(p for p in text_parts if p), tool_calls=tool_calls))
         elif etype == "user":
             for b in blocks:
@@ -144,6 +158,38 @@ def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
                 elif b.get("type") == "text" and b.get("text"):
                     turns.append(Turn(kind="user", text=b["text"]))
     return turns
+
+
+def _attach_subagent_subtrace(event: dict[str, Any], tool_calls_by_id: dict[str, ToolCall]) -> None:
+    """A `task_notification` event names the `tool_use_id` that spawned a
+    native subagent (the connected CLI's own "Agent" tool) and an
+    `output_file` holding that subagent's own isSidechain-tagged turns --
+    confirmed by tests/test_native_subagent_sidechain.py (story-simulator).
+    Attach the parsed result onto the matching
+    ToolCall's own `subtrace`, so a renderer can show it nested exactly
+    the way a keyed_subagent call's own subtrace would be.
+
+    Silently does nothing if the notification doesn't name a tool_use_id
+    this stream actually saw, or if the output_file it names doesn't
+    exist -- a trace reader should never crash just because a subagent's
+    own output happened to be cleaned up or was never captured.
+    """
+    tool_call = tool_calls_by_id.get(event.get("tool_use_id"))
+    output_file = event.get("output_file")
+    if tool_call is None or not output_file:
+        return
+    output_path = Path(output_file)
+    if not output_path.exists():
+        return
+    sub_events: list[dict[str, Any]] = []
+    for line in output_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            sub_events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    tool_call.subtrace = _normalize_anthropic_stream(sub_events)
 
 
 def _try_parse_json(value: Any) -> Any:
@@ -213,13 +259,18 @@ def _render_tool_call(tc: ToolCall) -> str:
             f'<details class="blob"><summary>decoded payload{where}</summary>'
             f'<div class="blob-content">{_render_decoded_value(decoded)}</div></details>'
         )
+    if tc.subtrace:
+        parts.append(
+            '<details class="blob"><summary>subagent trace</summary>'
+            f'<div class="blob-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
+        )
     parts.append("</div>")
     return "".join(parts)
 
 
-def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
-    n_errors = sum(1 for t in turns if t.kind == "tool_result" and t.is_error)
-    n_tool_calls = sum(len(t.tool_calls) for t in turns)
+def _render_steps(turns: list[Turn]) -> str:
+    """The `<li>` items for one turn sequence -- shared by the top-level
+    timeline and, recursively, by any nested subagent subtrace."""
     step_html: list[str] = []
     for i, turn in enumerate(turns, start=1):
         css_kind = "err" if turn.is_error else turn.kind
@@ -235,6 +286,12 @@ def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
             f'<li class="step {css_kind}"><div class="step-num">{i}</div>'
             f'<div class="step-body">{"".join(body)}</div></li>'
         )
+    return "".join(step_html)
+
+
+def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
+    n_errors = sum(1 for t in turns if t.kind == "tool_result" and t.is_error)
+    n_tool_calls = sum(len(t.tool_calls) for t in turns)
 
     return f"""<title>{_esc(title)}</title>
 <style>
@@ -254,7 +311,7 @@ def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
   </header>
   <section>
     <ol class="timeline">
-      {"".join(step_html)}
+      {_render_steps(turns)}
     </ol>
   </section>
 </div>
