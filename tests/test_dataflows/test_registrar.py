@@ -277,7 +277,7 @@ class TestLoadManifestWithTime:
         self._write(tmp_path, "reading.yaml", "cat_status:\n- status_reading:\n    status: closed\n")
         a.load_manifest(tmp_path, time="2024-06-01")
 
-        df = a.view_current("status_reading").execute()
+        df = a.view_current("status_reading").to_pandas()
         assert len(df) == 1
         assert df.iloc[0]["status_reading.status"] == "closed"
         assert df.iloc[0]["status_reading.as_of"] == "2024-06-01"
@@ -411,7 +411,7 @@ class TestUpdate:
             time=1,
         )
 
-        positions = r.view_current("position")
+        positions = r.view_current("position").to_table()
         assert positions.count().execute() == 1
         assert list(
             positions.execute().iloc[0][["position.x", "position.y", "position.z"]]
@@ -452,7 +452,7 @@ class TestUpdate:
                     z: 2
             """
             r.update(input_dirs=[example_dir], yaml_strings={"b": same_as_yaml_b}, time=1)
-            row = r.view_current("position").execute().iloc[0]
+            row = r.view_current("position").to_pandas().iloc[0]
             return list(row[["position.x", "position.y", "position.z"]])
 
         results = [_last_position() for _ in range(5)]
@@ -481,7 +481,7 @@ class TestUpdate:
             )
         })
 
-        todos = r.view("todo").execute()
+        todos = r.view("todo").to_pandas()
         new_todo = todos[todos["todo.value"] == "Double check requirement A"]
         assert len(new_todo) == 1
         assert new_todo.iloc[0]["entity_id"] == req_eid
@@ -512,7 +512,7 @@ class TestUpdate:
             )
         })
 
-        todos = r.view("todo").execute()
+        todos = r.view("todo").to_pandas()
         new_todo = todos[todos["todo.value"] == "Double check requirement A via hash"]
         assert len(new_todo) == 1
         assert new_todo.iloc[0]["entity_id"] == req_eid
@@ -592,7 +592,13 @@ class TestViewProxies:
     def test_view_entities_matches_registry_view_entities(self):
         r = self._registrar()
         entity_id = r.registry.get("entity_id").execute().iloc[0]["value"]
-        assert r.view_entities(entity_id).to_dict() == r.registry.view_entities(entity_id).to_dict()
+        # _current, not plain view_entities: this manifest's first entity
+        # may carry real SCD history, which full-history legitimately
+        # returns as more than one row (see view_entities' own docstring).
+        pd.testing.assert_frame_equal(
+            r.view_entities_current(entity_id).to_pandas(),
+            r.registry.view_entities_current(entity_id).to_pandas(),
+        )
 
     def test_view_entity_matches_registry_view_entity(self):
         r = self._registrar()
@@ -606,10 +612,13 @@ class TestViewProxies:
 
     def test_safe_view_matches_registry_safe_view(self):
         r = self._registrar()
-        pd.testing.assert_frame_equal(r.safe_view("description"), r.registry.safe_view("description"))
+        pd.testing.assert_frame_equal(
+            r.safe_view("description").to_pandas(), r.registry.safe_view("description").to_pandas()
+        )
 
     def test_safe_view_current_matches_registry_safe_view_current(self):
         r = self._registrar()
         pd.testing.assert_frame_equal(
-            r.safe_view_current("description"), r.registry.safe_view_current("description")
+            r.safe_view_current("description").to_pandas(),
+            r.registry.safe_view_current("description").to_pandas(),
         )
