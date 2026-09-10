@@ -280,7 +280,7 @@ class TestTimeProvider:
             "        value: hello\n",
         )
         registrar = sessions.get_registrar(session)
-        assert registrar.get_current_value("timed", "time", "thing_a") == 42.0
+        assert registrar.view_current("timed.time", "thing_a").to_scalar() == 42.0
 
     def test_default_time_provider_is_a_no_op(self, tmp_path):
         """No time_provider given -- time_dimension fields stay null, matching plain registrar.update() behavior."""
@@ -306,7 +306,7 @@ class TestTimeProvider:
             "        value: hello\n",
         )
         registrar = sessions.get_registrar(session)
-        value = registrar.get_current_value("timed", "time", "thing_a")
+        value = registrar.view_current("timed.time", "thing_a").to_scalar()
         assert value is None or math.isnan(value)
 
 

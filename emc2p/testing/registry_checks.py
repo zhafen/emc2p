@@ -50,7 +50,11 @@ def unexpected_components(registrar: "Registrar", alias: str, expected: set[str]
     not proof of one -- a legitimate write could add components beyond
     `expected` for reasons unrelated to any bug.
     """
-    return set(registrar.view_entity_df(alias)) - expected - _ALWAYS_PRESENT_META_COMPONENTS
+    row = registrar.safe_view_entities(alias).to_dict()
+    present = {
+        key.partition(".")[0] for key in row if key not in ("entity_id", "entity_id.alias")
+    }
+    return present - expected - _ALWAYS_PRESENT_META_COMPONENTS
 
 
 def write_time(registrar: "Registrar", component_type: str, alias: str) -> float | None:
@@ -65,15 +69,15 @@ def write_time(registrar: "Registrar", component_type: str, alias: str) -> float
     conversation turns the model took to get there.
 
     Takes `df[...].max()`, not `.iloc[-1]` -- `Registry._view` (what
-    `view_df` calls) never sorts its output, so two accumulated rows for
+    `view` calls) never sorts its output, so two accumulated rows for
     the same alias can come back in either order depending on the
-    backend's own query plan, even though `view_current`/
-    `get_current_value` (an explicit `ORDER BY time_dimension_field
-    DESC`, see `_current_table`) still resolves the right one. `.iloc[-1]`
-    would silently trust that unspecified order to also be write order,
-    which isn't guaranteed by anything `_view` does.
+    backend's own query plan, even though `view_current` (an explicit
+    `ORDER BY time_dimension_field DESC`, see `_current_table`) still
+    resolves the right one. `.iloc[-1]` would silently trust that
+    unspecified order to also be write order, which isn't guaranteed by
+    anything `_view` does.
     """
-    df = registrar.view_df(component_type, aliases=alias)
+    df = registrar.view(component_type, alias).to_pandas()
     if df.empty:
         return None
     return float(df[f"{component_type}.time"].max())
