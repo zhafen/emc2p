@@ -174,7 +174,19 @@ class McpClientSession:
                 pytest.skip(f"{params.command!r} (MCP server {name!r}) not on PATH")
 
         self._session_deadline = time.monotonic() + self.session_timeout
-        self._trace_file = open(self.trace_path, "w")
+        # "a", not "w": trace_path is always a freshly-generated,
+        # timestamp+uuid-suffixed name (never pre-existing), so append mode
+        # changes nothing about starting from an empty file -- but a
+        # nested in-process responder (e.g. keyed_subagent) can also be
+        # writing to this exact path concurrently, from a different OS
+        # process, via its own open-append-close per event. A "w"-mode
+        # handle held open across the whole session tracks its own write
+        # position independently of the file's actual current length, so
+        # this handle's next write would silently clobber whatever the
+        # other process just appended in between. "a" makes every write
+        # from this handle land at the file's current end (POSIX
+        # O_APPEND), regardless of what else grew it in the meantime.
+        self._trace_file = open(self.trace_path, "a")
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()

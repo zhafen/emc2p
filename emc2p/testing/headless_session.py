@@ -406,7 +406,14 @@ class HeadlessSession:
         if shutil.which(self.provider.executable) is None:
             pytest.skip(self.provider.skip_message())
         self._session_deadline = time.monotonic() + self.session_timeout
-        self._trace_file = open(self.trace_path, "w")
+        # "a", not "w" -- see McpClientSession.__enter__'s own comment on
+        # why: trace_path is always freshly-generated (never pre-existing),
+        # but a nested in-process responder can append to this same path
+        # from a different OS process while this handle stays open; only
+        # append mode (POSIX O_APPEND) keeps this handle's own writes from
+        # landing at a stale position and clobbering what that other
+        # process just wrote.
+        self._trace_file = open(self.trace_path, "a")
         env = self.provider.filter_env(dict(os.environ))
         env.update(self.extra_env)
         command = self.provider.build_command(

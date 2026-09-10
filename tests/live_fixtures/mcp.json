@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "trace-fixture": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "tests/live_fixtures/delegate_server.py"],
+      "env": {}
+    }
+  }
+}
