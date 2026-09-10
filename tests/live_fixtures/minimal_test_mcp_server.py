@@ -1,9 +1,9 @@
-"""Test-only MCP server for tests/testing/test_trace_convergence.py.
+"""Minimal test MCP server for tests/testing/test_trace_convergence.py.
 
 Not part of the emc2p package or its console scripts -- spawned directly
-via `uv run python tests/live_fixtures/delegate_server.py` from that
-test's own mcp.json (see MCP_CONFIG there). Exists purely to give that
-test a real MCP tool boundary to drive a nested `run_tool_calling_loop`
+via `uv run python tests/live_fixtures/minimal_test_mcp_server.py` from
+that test's own mcp.json (see MCP_CONFIG there). Exists purely to give
+that test a real MCP tool boundary to drive a nested `run_tool_calling_loop`
 call through, the same shape a keyed_subagent-style responder uses.
 """
 
@@ -15,7 +15,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from emc2p.agents.tool_calling_loop import run_tool_calling_loop
 
-server = FastMCP("trace-convergence-fixture")
+server = FastMCP("minimal-test-mcp-server")
 
 _NOTE_TOOL = [
     {

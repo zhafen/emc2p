@@ -1,9 +1,9 @@
 {
   "mcpServers": {
-    "trace-fixture": {
+    "minimal-test-server": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "python", "tests/live_fixtures/delegate_server.py"],
+      "args": ["run", "python", "tests/live_fixtures/minimal_test_mcp_server.py"],
       "env": {}
     }
   }

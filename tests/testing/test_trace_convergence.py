@@ -10,10 +10,11 @@ unit-tested at the Python level (`RegistrarSessions.set_registrar`/
 `get_trace_path`, `run_tool_calling_loop`'s own `trace_path`), but no
 live test ever proved a connected model would actually supply it --
 because nothing in the live tests' own driving instruction ever told it
-to. Uses `tests/live_fixtures/delegate_server.py`, a minimal MCP server
-exposing the same trace-threading shape (a tool with an optional
-`client_trace_path` argument, threaded into a nested tool-calling loop),
-so this doesn't depend on any downstream project's own tool names.
+to. Uses `tests/live_fixtures/minimal_test_mcp_server.py`, a minimal test
+MCP server exposing the same trace-threading shape (a tool with an
+optional `client_trace_path` argument, threaded into a nested
+tool-calling loop), so this doesn't depend on any downstream project's
+own tool names.
 """
 
 import json
@@ -30,7 +31,7 @@ from emc2p.testing.render_trace import parse_trace  # noqa: E402
 REPO_ROOT = Path(__file__).parent.parent.parent
 MCP_CONFIG = REPO_ROOT / "tests" / "live_fixtures" / "mcp.json"
 TRACE_DIR = REPO_ROOT / ".live_test_traces"
-_ALLOWED_TOOLS = ["mcp__trace-fixture__*"]
+_ALLOWED_TOOLS = ["mcp__minimal-test-server__*"]
 
 _NESTED_PROMPT = (
     "Call record_note with text set to exactly 'nested note', then reply with just the word done."
