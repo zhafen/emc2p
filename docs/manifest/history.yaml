@@ -600,3 +600,24 @@ project_history:
               about starting empty; it just makes every write from that
               handle POSIX-guaranteed to land at the current end of file
               regardless of what else grew it in the meantime.
+    trace_convergence_test_moved_from_a_downstream_project:
+        - description: >
+              tests/testing/test_trace_convergence.py started life in a
+              downstream project's own test suite, parametrized to a
+              single driver, after that project's optional
+              client_trace_path passthrough on one of its own MCP tools
+              shipped fully unit-tested at the Python level but never
+              actually converged live: nothing in that project's own
+              driving instructions ever told the connected model to
+              supply the value, so the feature sat unused through an
+              entire live-test suite -- see
+              trace_file_opened_in_append_mode above for the deeper
+              cross-process bug that same investigation also turned up.
+              Moved here and generalized (a minimal test-only MCP server,
+              tests/live_fixtures/minimal_test_mcp_server.py, replacing
+              that project's own tool) once it was clear the concern --
+              does a nested run_tool_calling_loop call's own trace
+              converge with the outer session's, for a given driver --
+              had nothing to do with that project's own tool names or
+              domain, and parametrized across every AgentSession driver
+              instead of just the one that project's tests happened to run.
