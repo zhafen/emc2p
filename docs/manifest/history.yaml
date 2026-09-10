@@ -580,3 +580,23 @@ project_history:
               classmethod -- a genuinely backend-agnostic Registry would
               need that workaround re-examined too, left as-is here since
               it wasn't part of what was actually asked.
+    trace_file_opened_in_append_mode:
+        - description: >
+              McpClientSession/HeadlessSession each opened trace_path once
+              with open(path, "w") and held that handle open for the whole
+              session. A nested in-process responder (e.g. a downstream
+              project's keyed_subagent) can append to that same path from
+              a different OS process via run_tool_calling_loop's own
+              trace_path (open-append-close per event, already correct).
+              A "w"-mode handle's write position tracks independently of
+              the file's actual growth, so the outer handle's next write
+              would silently clobber whatever the nested process had just
+              appended. Found via story-simulator's own driver/responder
+              coverage matrix: a live trial showed the nested call's own
+              tool activity in the raw trace file, then nothing after the
+              outer handle's next write. Switched both to open(path, "a")
+              -- trace_path is always a freshly-generated, timestamp+uuid
+              name (never pre-existing), so append mode changes nothing
+              about starting empty; it just makes every write from that
+              handle POSIX-guaranteed to land at the current end of file
+              regardless of what else grew it in the meantime.
