@@ -2,7 +2,7 @@ import ibis
 import pandas as pd
 import pytest
 
-from emc2p.registry import Registry
+from emc2p.registry import GetterResult, Registry
 
 
 class TestRegistryInitialization:
@@ -113,14 +113,15 @@ class TestRegistryView:
         }
         return Registry(conn, components)
 
-    def test_view_returns_ibis_table(self, sample_registry):
-        """view() returns an ibis Table for the specified component type."""
+    def test_view_returns_getter_result(self, sample_registry):
+        """view() returns a GetterResult wrapping an ibis Table."""
         result = sample_registry.view("description")
-        assert isinstance(result, ibis.Table)
+        assert isinstance(result, GetterResult)
+        assert isinstance(result.to_table(), ibis.Table)
 
     def test_view_returns_correct_data(self, sample_registry):
         """view() returns the correct data for the component."""
-        result = sample_registry.view_df("requirement")
+        result = sample_registry.view("requirement").to_pandas()
 
         assert "requirement.value" in result.columns
         assert "requirement.type" in result.columns
@@ -131,11 +132,11 @@ class TestRegistryView:
             sample_registry.view("nonexistent")
 
     def test_view_returns_copy_not_reference(self, sample_registry):
-        """view_df() returns a copy to prevent accidental modification."""
-        result = sample_registry.view_df("description")
+        """view().to_pandas() returns a copy to prevent accidental modification."""
+        result = sample_registry.view("description").to_pandas().set_index("entity_id")
         result.loc["iacs", "description.value"] = "Modified"
 
-        original = sample_registry.view_df("description")
+        original = sample_registry.view("description").to_pandas().set_index("entity_id")
         assert original.loc["iacs", "description.value"] == "A tool for architects"
 
 
@@ -201,32 +202,32 @@ class TestRegistryViewAliases:
         return Registry(conn, components)
 
     def test_aliases_filters_to_exact_match(self, sample_registry):
-        result = sample_registry.view_df("description", aliases="iacs")
+        result = sample_registry.view("description", "iacs").to_pandas().set_index("entity_id")
         assert list(result.index) == ["iacs"]
 
     def test_aliases_accepts_a_list(self, sample_registry):
-        result = sample_registry.view_df("description", aliases=["iacs", "registry"])
+        result = sample_registry.view("description", ["iacs", "registry"]).to_pandas().set_index("entity_id")
         assert set(result.index) == {"iacs", "registry"}
 
     def test_aliases_multi_match_includes_all_matches(self, registry_with_ambiguous_alias):
-        result = registry_with_ambiguous_alias.view_df("description", aliases="shared")
+        result = registry_with_ambiguous_alias.view("description", "shared").to_pandas().set_index("entity_id")
         assert set(result.index) == {"e1", "e2"}
 
     def test_aliases_multi_match_warns(self, registry_with_ambiguous_alias):
         with pytest.warns(UserWarning, match="shared"):
-            registry_with_ambiguous_alias.view_df("description", aliases="shared")
+            registry_with_ambiguous_alias.view("description", "shared").to_pandas()
 
     def test_aliases_zero_match_excludes_everything(self, sample_registry):
         with pytest.warns(UserWarning, match="nonexistent"):
-            result = sample_registry.view_df("description", aliases="nonexistent")
+            result = sample_registry.view("description", "nonexistent").to_pandas()
         assert len(result) == 0
 
     def test_aliases_none_returns_everything(self, sample_registry):
-        result = sample_registry.view_df("description")
+        result = sample_registry.view("description").to_pandas().set_index("entity_id")
         assert set(result.index) == {"iacs", "registry"}
 
     def test_aliases_applies_to_view_current_too(self, sample_registry):
-        result = sample_registry.view_current("description", aliases="iacs").execute()
+        result = sample_registry.view_current("description", "iacs").to_pandas()
         assert list(result["entity_id"]) == ["iacs"]
 
 
@@ -259,13 +260,13 @@ class TestRegistryViewMultipleComponents:
         return Registry(conn, components)
 
     def test_view_multiple_components_returns_dataframe(self, multi_component_registry):
-        """view() with list of components returns a DataFrame."""
-        result = multi_component_registry.view_df(["description", "requirement"])
+        """view() with list of components returns a DataFrame via to_pandas()."""
+        result = multi_component_registry.view(["description", "requirement"]).to_pandas()
         assert isinstance(result, pd.DataFrame)
 
     def test_view_multiple_components_inner_joins_by_entity_id(self, multi_component_registry):
         """view() with list of components inner joins by entity_id."""
-        result = multi_component_registry.view_df(["description", "requirement"])
+        result = multi_component_registry.view(["description", "requirement"]).to_pandas().set_index("entity_id")
 
         # entity c has no requirement, so it should be excluded
         entity_ids = result.index.unique()
@@ -275,13 +276,15 @@ class TestRegistryViewMultipleComponents:
 
     def test_view_specific_fields(self, multi_component_registry):
 
-        result = multi_component_registry.view_df(["description.value", "requirement.value"])
+        result = multi_component_registry.view(
+            ["description.value", "requirement.value"]
+        ).to_pandas().set_index("entity_id")
         assert result.loc["b", "description.value"] == "Desc B"
         assert result.loc["b", "requirement.value"] == 0.0
 
     def test_view_single_component_as_list_works(self, multi_component_registry):
         """view() with single-element list works like single string."""
-        result = multi_component_registry.view_df(["description"])
+        result = multi_component_registry.view(["description"]).to_pandas()
         assert isinstance(result, pd.DataFrame)
         assert "description.value" in result.columns
 
@@ -312,13 +315,13 @@ class TestRegistryViewDoesNotCrossJoinSameTable:
         return Registry(conn, components)
 
     def test_bare_component_type_keeps_rows_correlated(self, multi_row_registry):
-        df = multi_row_registry.view("reading").execute()
+        df = multi_row_registry.view("reading").to_pandas()
         assert len(df) == 2
         pairs = set(zip(df["reading.as_of"], df["reading.status"]))
         assert pairs == {("2024-01-01", "open"), ("2024-06-01", "closed")}
 
     def test_explicit_dotted_fields_keep_rows_correlated(self, multi_row_registry):
-        df = multi_row_registry.view(["reading.as_of", "reading.status"]).execute()
+        df = multi_row_registry.view(["reading.as_of", "reading.status"]).to_pandas()
         assert len(df) == 2
         pairs = set(zip(df["reading.as_of"], df["reading.status"]))
         assert pairs == {("2024-01-01", "open"), ("2024-06-01", "closed")}
@@ -379,18 +382,18 @@ class TestRegistryViewCurrent:
             scd_registry._time_dimension_field("status_reading")
 
     def test_view_current_keeps_one_row_per_entity(self, scd_registry):
-        df = scd_registry.view_current("status_reading").execute()
+        df = scd_registry.view_current("status_reading").to_pandas()
         assert sorted(df["entity_id"]) == ["e1", "e2"]
 
     def test_view_current_picks_max_time_dimension(self, scd_registry):
-        df = scd_registry.view_current("status_reading").execute()
+        df = scd_registry.view_current("status_reading").to_pandas()
         e1_row = df[df["entity_id"] == "e1"].iloc[0]
         assert e1_row["status_reading.as_of"] == "2024-06-01"
         assert e1_row["status_reading.status"] == "closed"
 
     def test_view_unchanged_still_returns_all_versions(self, scd_registry):
         """view() (unlike view_current()) does not collapse SCD history."""
-        df = scd_registry.view("status_reading").execute()
+        df = scd_registry.view("status_reading").to_pandas()
         as_of_values = set(df.loc[df["entity_id"] == "e1", "status_reading.as_of"])
         assert as_of_values == {"2024-01-01", "2024-06-01"}
 
@@ -412,8 +415,8 @@ class TestRegistryViewCurrent:
             overwrite=True,
         )
         scd_registry._components["status_reading"] = conn.table("status_reading")
-        assert "status_reading._seq_as_of" not in scd_registry.view_current("status_reading").columns
-        assert "status_reading._seq_as_of" not in scd_registry.view("status_reading").columns
+        assert "status_reading._seq_as_of" not in scd_registry.view_current("status_reading").to_table().columns
+        assert "status_reading._seq_as_of" not in scd_registry.view("status_reading").to_table().columns
 
     def test_seq_column_breaks_ties_most_recent_wins(self, scd_registry):
         """Two rows tied on the time_dimension value resolve via `_seq_{field}`."""
@@ -430,7 +433,7 @@ class TestRegistryViewCurrent:
             overwrite=True,
         )
         scd_registry._components["status_reading"] = conn.table("status_reading")
-        df = scd_registry.view_current("status_reading").execute()
+        df = scd_registry.view_current("status_reading").to_pandas()
         e1_row = df[df["entity_id"] == "e1"].iloc[0]
         assert e1_row["status_reading.status"] == "fresh"
 
@@ -466,7 +469,7 @@ class TestRegistryViewCurrent:
             overwrite=True,
         )
         scd_registry._components["status_reading"] = conn.table("status_reading")
-        df = scd_registry.view_current("status_reading").execute()
+        df = scd_registry.view_current("status_reading").to_pandas()
         assert len(df[df["entity_id"] == "e1"]) == 1
 
     def test_view_current_component_without_time_dimension_is_unchanged(self):
@@ -493,7 +496,7 @@ class TestRegistryViewCurrent:
             "field": conn.table("field"),
             "description": conn.table("description"),
         })
-        df = registry.view_current("description").execute()
+        df = registry.view_current("description").to_pandas()
         assert len(df) == 2
 
 
@@ -528,34 +531,35 @@ class TestRegistrySafeView:
         }
         return Registry(conn, components)
 
-    def test_safe_view_returns_none_for_unknown_component_type(self, scd_registry):
-        assert scd_registry.safe_view("nonexistent") is None
+    def test_safe_view_returns_empty_getter_result_for_unknown_component_type(self, scd_registry):
+        result = scd_registry.safe_view("nonexistent")
+        assert isinstance(result, GetterResult)
+        assert result.to_pandas().empty
 
-    def test_safe_view_current_returns_none_for_unknown_component_type(self, scd_registry):
-        assert scd_registry.safe_view_current("nonexistent") is None
+    def test_safe_view_current_returns_empty_getter_result_for_unknown_component_type(self, scd_registry):
+        result = scd_registry.safe_view_current("nonexistent")
+        assert isinstance(result, GetterResult)
+        assert result.to_pandas().empty
 
     def test_safe_view_matches_view_for_known_component_type(self, scd_registry):
-        df = scd_registry.safe_view("status_reading")
-        assert df is not None
+        df = scd_registry.safe_view("status_reading").to_pandas()
         assert sorted(df["entity_id"]) == ["e1"]
 
     def test_safe_view_current_matches_view_current_for_known_component_type(self, scd_registry):
-        df = scd_registry.safe_view_current("status_reading")
-        assert df is not None
+        df = scd_registry.safe_view_current("status_reading").to_pandas()
         assert df.iloc[0]["status_reading.status"] == "open"
 
-    def test_safe_view_returns_empty_dataframe_not_none_for_declared_but_dataless_type(self, scd_registry):
+    def test_safe_view_returns_empty_dataframe_not_error_for_declared_but_dataless_type(self, scd_registry):
         schema = ibis.schema(
             {"entity_id": "string", "component_index": "int64", "modifier": "string", "value": "string"}
         )
         scd_registry.declare_schema("empty_type", schema)
-        df = scd_registry.safe_view("empty_type")
-        assert df is not None
+        df = scd_registry.safe_view("empty_type").to_pandas()
         assert df.empty
 
 
-class TestGetCurrentValue:
-    """Tests for get_current_value(), the single-value convenience over view_current()."""
+class TestRegistryCurrentValueViaToScalar:
+    """The old get_current_value's job, now view_current(...).to_scalar()."""
 
     @pytest.fixture
     def scd_registry(self):
@@ -588,23 +592,23 @@ class TestGetCurrentValue:
         return Registry(conn, components)
 
     def test_returns_the_current_value(self, scd_registry):
-        assert scd_registry.get_current_value("status_reading", "status", "e1") == "closed"
+        assert scd_registry.view_current("status_reading.status", "e1").to_scalar() == "closed"
 
-    def test_defaults_field_to_value(self, scd_registry):
-        assert scd_registry.get_current_value("entity_id", alias="e1") == "e1"
-
-    def test_nonexistent_component_type_returns_none(self, scd_registry):
-        assert scd_registry.get_current_value("nonexistent", alias="e1") is None
+    def test_nonexistent_component_type_raises_keyerror(self, scd_registry):
+        with pytest.raises(KeyError):
+            scd_registry.view_current("nonexistent.status", "e1")
 
     def test_alias_matching_nothing_returns_none(self, scd_registry):
-        assert scd_registry.get_current_value("status_reading", "status", "no_such_alias") is None
+        with pytest.warns(UserWarning, match="no_such_alias"):
+            result = scd_registry.view_current("status_reading.status", "no_such_alias").to_scalar()
+        assert result is None
 
     def test_declared_but_dataless_component_type_returns_none(self, scd_registry):
         schema = ibis.schema(
             {"entity_id": "string", "component_index": "int64", "modifier": "string", "value": "string"}
         )
         scd_registry.declare_schema("empty_type", schema)
-        assert scd_registry.get_current_value("empty_type", alias="e1") is None
+        assert scd_registry.view_current("empty_type.value", "e1").to_scalar() is None
 
 
 class TestRegistryDatabaseRoundTrip:
@@ -710,14 +714,14 @@ class TestRegistryDeclareSchema:
     def test_view_returns_empty_result_when_no_physical_table(self, sample_registry):
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
         sample_registry.declare_schema("position", schema)
-        result = sample_registry.view("position.x").execute()
+        result = sample_registry.view("position.x").to_pandas()
         assert result.empty
         assert "position.x" in result.columns
 
     def test_view_current_returns_empty_result_when_no_physical_table(self, sample_registry):
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
         sample_registry.declare_schema("position", schema)
-        result = sample_registry.view_current("position.x").execute()
+        result = sample_registry.view_current("position.x").to_pandas()
         assert result.empty
 
     def test_view_still_raises_keyerror_for_undeclared_type(self, sample_registry):
@@ -845,11 +849,167 @@ class TestRegistryGetEntityId:
         assert registry.get_entity_id("dup_alias") is None
 
 
-class TestRegistryViewEntityDf:
-    """Tests for view_entity_df's ref resolution (delegated to get_entity_id)."""
+class TestGetterResult:
+    """Unit tests for GetterResult's extraction methods, independent of Registry."""
+
+    def _table(self, rows: list[dict]) -> ibis.Table:
+        conn = ibis.duckdb.connect()
+        if not rows:
+            return conn.create_table("t", schema={"entity_id": "string", "x": "string"})
+        return conn.create_table("t", pd.DataFrame(rows))
+
+    def test_to_table_returns_the_underlying_ibis_table(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}])
+        assert GetterResult(table).to_table() is table
+
+    def test_to_pandas_executes_to_a_dataframe(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}, {"entity_id": "e2", "x": "b"}])
+        df = GetterResult(table).to_pandas()
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 2
+
+    def test_to_dict_on_zero_rows_returns_empty_dict(self):
+        assert GetterResult(self._table([])).to_dict() == {}
+
+    def test_to_dict_on_one_row_returns_that_row(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}])
+        assert GetterResult(table).to_dict() == {"entity_id": "e1", "x": "a"}
+
+    def test_to_dict_on_multiple_rows_raises(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}, {"entity_id": "e2", "x": "b"}])
+        with pytest.raises(ValueError, match="exactly one row"):
+            GetterResult(table).to_dict()
+
+    def test_to_scalar_on_zero_rows_returns_none(self):
+        assert GetterResult(self._table([])).to_scalar() is None
+
+    def test_to_scalar_on_one_row_one_data_column_returns_the_value(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}])
+        assert GetterResult(table).to_scalar() == "a"
+
+    def test_to_scalar_on_multiple_rows_raises(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}, {"entity_id": "e2", "x": "b"}])
+        with pytest.raises(ValueError, match="exactly one row"):
+            GetterResult(table).to_scalar()
+
+    def test_to_scalar_on_multiple_data_columns_raises(self):
+        table = self._table([{"entity_id": "e1", "x": "a", "y": "b"}])
+        with pytest.raises(ValueError, match="exactly one data column"):
+            GetterResult(table).to_scalar()
+
+
+class TestRegistryViewEntities:
+    """Tests for view_entities()/view_entities_current()/safe_view_entities*()."""
 
     @pytest.fixture
     def registry(self):
+        """Two entities: e1 has both description and status_reading (with
+        SCD history); e2 has only description -- exercises null-filling
+        for the component e2 lacks.
+        """
+        conn = ibis.duckdb.connect()
+        conn.create_table(
+            "entity_id",
+            {
+                "value": ["e1", "e2", "def1"],
+                "alias": ["hero", "villain", "status_reading"],
+                "path": ["story:hero", "story:villain", "story:status_reading"],
+                "entity_key": ["hero", "villain", "status_reading"],
+                "filepath": ["story"] * 3,
+            },
+        )
+        conn.create_table(
+            "field",
+            {"entity_id": ["def1", "def1"], "value": ["as_of", "status"], "time_dimension": [True, False]},
+        )
+        conn.create_table(
+            "description",
+            {"entity_id": ["e1", "e2"], "value": ["Hero desc", "Villain desc"]},
+        )
+        conn.create_table(
+            "status_reading",
+            {
+                "entity_id": ["e1", "e1"],
+                "component_index": [0, 1],
+                "modifier": pd.array([None, None], dtype=pd.StringDtype()),
+                "as_of": ["2024-01-01", "2024-06-01"],
+                "status": ["open", "closed"],
+            },
+        )
+        return Registry(conn, {
+            "entity_id": conn.table("entity_id"),
+            "field": conn.table("field"),
+            "description": conn.table("description"),
+            "status_reading": conn.table("status_reading"),
+        })
+
+    def test_view_entities_returns_getter_result(self, registry):
+        assert isinstance(registry.view_entities("hero"), GetterResult)
+
+    def test_resolves_by_id(self, registry):
+        # _current, not plain view_entities: "hero" has SCD history in
+        # status_reading, so full-history would legitimately be >1 row here.
+        assert registry.view_entities_current("e1").to_dict()["description.value"] == "Hero desc"
+
+    def test_resolves_by_alias(self, registry):
+        assert registry.view_entities_current("hero").to_dict()["description.value"] == "Hero desc"
+
+    def test_resolves_by_path_fragment(self, registry):
+        assert registry.view_entities_current("story:hero").to_dict()["description.value"] == "Hero desc"
+
+    def test_includes_all_component_types(self, registry):
+        row = registry.view_entities_current("hero").to_dict()
+        assert row["description.value"] == "Hero desc"
+        assert row["status_reading.status"] == "closed"
+
+    def test_nulls_for_missing_component_not_a_dropped_row(self, registry):
+        row = registry.view_entities("villain").to_dict()
+        assert row["description.value"] == "Villain desc"
+        assert pd.isna(row["status_reading.status"])
+
+    def test_current_collapses_scd_history(self, registry):
+        row = registry.view_entities_current("hero").to_dict()
+        assert row["status_reading.as_of"] == "2024-06-01"
+        assert row["status_reading.status"] == "closed"
+
+    def test_full_history_keeps_all_rows(self, registry):
+        df = registry.view_entities("hero").to_pandas()
+        assert set(df["status_reading.as_of"]) == {"2024-01-01", "2024-06-01"}
+
+    def test_multiple_entities_returns_one_row_each(self, registry):
+        df = registry.view_entities(["hero", "villain"]).to_pandas()
+        assert set(df["entity_id"]) == {"e1", "e2"}
+
+    def test_unresolved_ref_raises_keyerror(self, registry):
+        with pytest.raises(KeyError):
+            registry.view_entities("nonexistent")
+
+    def test_safe_view_entities_unresolved_ref_returns_empty_getter_result(self, registry):
+        result = registry.safe_view_entities("nonexistent")
+        assert isinstance(result, GetterResult)
+        assert result.to_pandas().empty
+
+    def test_partial_match_does_not_raise(self, registry):
+        with pytest.warns(UserWarning, match="nonexistent"):
+            df = registry.view_entities(["hero", "nonexistent"]).to_pandas()
+        assert set(df["entity_id"]) == {"e1"}
+
+    def test_safe_view_entities_current_does_not_swallow_multiple_time_dimension_error(self, registry):
+        conn = registry._con
+        conn.create_table(
+            "field",
+            {"entity_id": ["def1", "def1"], "value": ["as_of", "also_as_of"], "time_dimension": [True, True]},
+            overwrite=True,
+        )
+        registry._components["field"] = conn.table("field")
+        with pytest.raises(ValueError, match="status_reading"):
+            registry.safe_view_entities_current("hero")
+
+    def test_resolves_container_alias_despite_being_path_prefix_of_child(self):
+        """entity resolution must pick the exact-alias match over a
+        path-substring match against a different entity whose alias
+        happens to be a prefix of this one's.
+        """
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
@@ -871,21 +1031,8 @@ class TestRegistryViewEntityDf:
                 "value": ["The feeding system.", "The feed_cats task."],
             },
         )
-        return Registry(
+        registry = Registry(
             conn, {"entity_id": conn.table("entity_id"), "description": conn.table("description")}
         )
-
-    def test_resolves_exact_alias(self, registry):
-        result = registry.view_entity_df("feeding_system.feed_cats")
-        assert result["description"].iloc[0]["description.value"] == "The feed_cats task."
-
-    def test_resolves_container_alias_despite_being_path_prefix_of_child(self, registry):
-        """view_entity_df must resolve a container entity correctly even
-        though its alias is a path prefix of its children's aliases;
-        get_entity_id is what disambiguates them.
-        """
-        result = registry.view_entity_df("feeding_system")
-        assert result["description"].iloc[0]["description.value"] == "The feeding system."
-
-    def test_returns_empty_dict_for_unresolvable_ref(self, registry):
-        assert registry.view_entity_df("nonexistent") == {}
+        result = registry.view_entities("feeding_system").to_dict()
+        assert result["description.value"] == "The feeding system."

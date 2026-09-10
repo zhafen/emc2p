@@ -3,3 +3,4 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 "$repo_root/scripts/check-no-downstream-mentions.sh" --staged
+"$repo_root/scripts/check-pr-size.sh"
