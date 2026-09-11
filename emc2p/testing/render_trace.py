@@ -54,6 +54,14 @@ class Turn:
     tool_calls: list[ToolCall] = dataclasses.field(default_factory=list)
     tool_name: str = ""
     is_error: bool = False
+    # Who produced this turn, e.g. "keyed_subagent" -- set only when the
+    # writer (see `run_tool_calling_loop`'s own `trace_actor`) stamped an
+    # explicit "actor" key on the event; "" for an ordinary top-level
+    # session turn or an older trace written before this field existed.
+    # Deliberately not inferred from tool-name conventions (an MCP
+    # dispatch prefix versus a bare name) -- that was a reader-side guess,
+    # not something the trace itself stated.
+    actor: str = ""
 
 
 # ─── Parsing ──────────────────────────────────────────────────────────
@@ -96,20 +104,22 @@ def _simple_format_turn(event: dict[str, Any]) -> Turn | None:
     unrecognized `type` (mirrors `_normalize_events`'s own anthropic-side
     tolerance of events it doesn't handle)."""
     kind = event.get("type")
+    actor = event.get("actor") or ""
     if kind == "user":
-        return Turn(kind="user", text=event.get("content") or "")
+        return Turn(kind="user", text=event.get("content") or "", actor=actor)
     if kind == "assistant":
         tool_calls = []
         for tc in event.get("tool_calls") or []:
             args = _try_parse_json(tc.get("arguments", "")) or tc.get("arguments", "")
             tool_calls.append(ToolCall(name=tc.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
-        return Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls)
+        return Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls, actor=actor)
     if kind == "tool_result":
         return Turn(
             kind="tool_result",
             text=str(event.get("content", "")),
             tool_name=event.get("name", ""),
             is_error=bool(event.get("is_error")),
+            actor=actor,
         )
     return None
 
@@ -297,6 +307,7 @@ def _render_steps(turns: list[Turn]) -> str:
         kind_label = _STEP_LABELS.get(turn.kind, turn.kind)
         body = [f'<div class="step-kind">{_esc(kind_label)}'
                 + (f' · <span class="tool-name">{_esc(turn.tool_name)}</span>' if turn.tool_name else "")
+                + (f' <span class="actor-tag">{_esc(turn.actor)}</span>' if turn.actor else "")
                 + "</div>"]
         if turn.text:
             body.append(f'<div class="step-text">{_esc(turn.text)}</div>')
@@ -377,6 +388,7 @@ h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0; text
 .step-body { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .step-kind { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
 .step-kind .tool-name { text-transform: none; letter-spacing: 0; }
+.actor-tag { display: inline-block; text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent); }
 .tool-name { font-family: 'IBM Plex Mono', ui-monospace, monospace; color: var(--accent); }
 .step.err .tool-name { color: var(--err); }
 .step-text { font-size: 14.5px; white-space: pre-wrap; word-break: break-word; }

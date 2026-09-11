@@ -104,6 +104,49 @@ class TestParseSimpleFormat:
         assert turns[4].is_error is True
         assert turns[4].tool_name == "do_thing"
 
+    def test_actor_defaults_to_empty_when_absent(self, tmp_path: Path):
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        assert all(t.actor == "" for t in turns)
+
+
+class TestActorLabel:
+    """`actor`, when a writer stamps it (`run_tool_calling_loop`'s own
+    `trace_actor`), identifies which call context produced a turn -- e.g.
+    a keyed_subagent responder's nested exchange sharing its parent's
+    trace_path -- explicitly, rather than leaving a reader to infer it
+    from tool-name conventions."""
+
+    def test_actor_captured_on_every_event_type(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"}),
+                json.dumps(
+                    {
+                        "type": "tool_result",
+                        "name": "update_registry",
+                        "is_error": False,
+                        "content": "ok",
+                        "actor": "keyed_subagent",
+                    }
+                ),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        assert [t.actor for t in turns] == ["keyed_subagent", "keyed_subagent"]
+
+    def test_actor_shown_in_rendered_html(self, tmp_path: Path):
+        trace = json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"})
+        turns = parse_trace(_write(tmp_path, trace))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<span class="actor-tag">keyed_subagent</span>' in output
+
+    def test_no_actor_tag_rendered_when_absent(self, tmp_path: Path):
+        """The CSS rule always ships in `<style>`; only the `<span>` marks an
+        actual actor-labeled step, so that's what must stay absent."""
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<span class="actor-tag">' not in output
+
 
 class TestParseAnthropicFormat:
     def test_system_event_skipped_and_turn_kinds_correct(self, tmp_path: Path):

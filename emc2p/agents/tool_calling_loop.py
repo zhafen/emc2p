@@ -120,6 +120,7 @@ async def run_tool_calling_loop(
     usage_log_path: Path | None = None,
     on_response: Callable[[Any], None] | None = None,
     trace_path: Path | None = None,
+    trace_actor: str | None = None,
 ) -> str:
     """Answer `prompt` via `model`, letting it call `tools` (dispatched
     through `dispatch`) as many times as needed before a final text answer.
@@ -150,12 +151,20 @@ async def run_tool_calling_loop(
     caller wanting one combined trace across several calls (e.g. a nested
     subagent call sharing its parent's own trace_path) gets that for free
     by passing the same path.
+
+    `trace_actor`, if given, is stamped onto every event this call writes
+    (an `"actor"` key alongside `"type"`) so a shared trace_path's reader
+    can tell which call context produced a given step without falling
+    back to guessing from tool-name conventions (e.g. an MCP dispatch
+    prefix versus a bare name) -- see `render_trace`'s own Turn.actor.
+    None (the default) omits the key entirely, matching a top-level
+    session's own unlabeled events.
     """
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(model=model, messages=messages, tools=tools)
     _log_usage(response, usage_log_path)
     if trace_path is not None:
-        _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message))
+        _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message, trace_actor))
     if on_response is not None:
         on_response(response)
 
@@ -179,19 +188,19 @@ async def run_tool_calling_loop(
                 is_error = True
             messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": str(result)})
             if trace_path is not None:
-                _append_trace_event(
-                    trace_path,
-                    {
-                        "type": "tool_result",
-                        "name": tool_call.function.name,
-                        "content": str(result),
-                        "is_error": is_error,
-                    },
-                )
+                event = {
+                    "type": "tool_result",
+                    "name": tool_call.function.name,
+                    "content": str(result),
+                    "is_error": is_error,
+                }
+                if trace_actor is not None:
+                    event["actor"] = trace_actor
+                _append_trace_event(trace_path, event)
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
         if trace_path is not None:
-            _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message))
+            _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message, trace_actor))
         if on_response is not None:
             on_response(response)
 
@@ -200,7 +209,7 @@ async def run_tool_calling_loop(
     return response.choices[0].message.content or ""
 
 
-def _assistant_trace_event(message: Any) -> dict[str, Any]:
+def _assistant_trace_event(message: Any, actor: str | None = None) -> dict[str, Any]:
     """render_trace's "simple format" shape for one assistant response.
 
     Arguments are parsed back into a dict where possible (matching what
@@ -217,7 +226,10 @@ def _assistant_trace_event(message: Any) -> dict[str, Any]:
         except json.JSONDecodeError:
             arguments = tc.function.arguments
         tool_calls.append({"name": tc.function.name, "arguments": arguments})
-    return {"type": "assistant", "content": message.content or "", "tool_calls": tool_calls}
+    event: dict[str, Any] = {"type": "assistant", "content": message.content or "", "tool_calls": tool_calls}
+    if actor is not None:
+        event["actor"] = actor
+    return event
 
 
 def _append_trace_event(trace_path: Path, event: dict[str, Any]) -> None:
