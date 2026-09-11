@@ -845,6 +845,16 @@ class Registry:
         by_type: dict[str, pd.DataFrame] = {}
         if resolved_id is not None:
             for comp_type in self.component_types:
+                # "component_type" isn't entity data -- it's the registry's
+                # own bookkeeping of which component types this entity
+                # carries (one row per type, each shaped identically:
+                # derived/implicit_parent/skip_on_export). Every other
+                # section already names its own type in its "## " heading,
+                # so showing this too is pure noise: a run of
+                # near-identical, hard-to-tell-apart blocks in front of the
+                # entity's actual data rather than after it.
+                if comp_type == "component_type":
+                    continue
                 try:
                     df = self.view(comp_type, resolved_id).to_pandas()
                 except Exception:
@@ -863,9 +873,22 @@ class Registry:
             prefix = f"{comp_type}."
             for _, row in df.iterrows():
                 lines.append(f"\n## {comp_type}")
-                for key, value in row.items():
-                    if key in ("entity_id", "entity_id.alias"):
+                fields = {
+                    (key[len(prefix):] if key.startswith(prefix) else key): value
+                    for key, value in row.items()
+                    if key not in ("entity_id", "entity_id.alias")
+                }
+                for field, value in fields.items():
+                    # An entity_ref field (e.g. "value") resolves during
+                    # derive to a companion "{field}_eid" column holding the
+                    # target's raw entity_id hash (see
+                    # dataflows.derive.resolve_paths) -- an internal lookup
+                    # key, not something a reader can act on. Shown right
+                    # next to the human-readable value it resolves (already
+                    # legible on its own, whether that's an alias or plain
+                    # text), it's redundant more often than not; drop it
+                    # whenever that companion value is actually present.
+                    if field.endswith("_eid") and fields.get(field[: -len("_eid")]) is not None:
                         continue
-                    field = key[len(prefix):] if key.startswith(prefix) else key
                     lines.append(f"- {field}: {_format_field_value(value)}")
         return "\n".join(lines)

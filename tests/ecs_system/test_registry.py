@@ -1036,3 +1036,59 @@ class TestRegistryViewEntities:
         )
         result = registry.view_entities("feeding_system").to_dict()
         assert result["description.value"] == "The feeding system."
+
+
+class TestViewEntity:
+    """view_entity's markdown output is meant to be read (by a human or a
+    live model deciding what to do next), so it should show only an
+    entity's own data -- not the registry's internal bookkeeping about
+    that data (see the fix's own commit for the motivating example: a
+    live-test trace where a real entity was buried under near-identical
+    "component_type" blocks and redundant resolved-hash columns)."""
+
+    def _registry(self) -> Registry:
+        return Registry.from_component_rows(
+            {
+                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                # Bookkeeping rows the registry itself tracks per component
+                # type this entity carries -- not entity data.
+                "component_type": [
+                    {"entity_id": "e1", "component_type": "solution", "derived": False},
+                    {"entity_id": "e1", "component_type": "description", "derived": False},
+                ],
+                "description": [{"entity_id": "e1", "value": "A test widget."}],
+                # An entity_ref field: "value" is the human-readable
+                # reference, "value_eid" its derive-time-resolved hash.
+                "solution": [{"entity_id": "e1", "value": "widget_b", "value_eid": "e2"}],
+            }
+        )
+
+    def test_component_type_bookkeeping_is_not_shown(self):
+        output = self._registry().view_entity("widget_a")
+        assert "## component_type" not in output
+        assert "derived" not in output
+
+    def test_resolved_eid_is_hidden_when_its_human_readable_value_is_present(self):
+        output = self._registry().view_entity("widget_a")
+        assert "value: widget_b" in output
+        assert "value_eid" not in output
+        assert "e2" not in output
+
+    def test_actual_component_data_still_shown(self):
+        output = self._registry().view_entity("widget_a")
+        assert "## description" in output
+        assert "A test widget." in output
+        assert "## solution" in output
+
+    def test_eid_kept_when_no_companion_human_readable_value_present(self):
+        """The suppression only fires when the plain field is actually
+        there to fall back on -- an _eid-suffixed field with no companion
+        is left alone rather than silently dropped."""
+        registry = Registry.from_component_rows(
+            {
+                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                "parent_eid": [{"entity_id": "e1", "parent_eid": "e2"}],
+            }
+        )
+        output = registry.view_entity("widget_a")
+        assert "parent_eid: e2" in output
