@@ -621,3 +621,35 @@ project_history:
               had nothing to do with that project's own tool names or
               domain, and parametrized across every AgentSession driver
               instead of just the one that project's tests happened to run.
+    trace_convergence_matrix_generalized_to_every_responder_pattern:
+        - description: >
+              A downstream project's judgment-resolution logic (see that
+              project's own tests/test_native_subagent_sidechain.py,
+              which first confirmed a native subagent's own turns are
+              reachable via a task_notification event's output_file)
+              dispatches
+              on a "responder" value -- "host" (the connected model
+              decides inline), "subagent" (delegates to the connected
+              client's own isolated subagent mechanism), "keyed_subagent"
+              (this process answers it directly, in-process) -- and that
+              same three-way split turned out to have nothing to do with
+              that project's own domain either: minimal_test_mcp_server.py's
+              `resolve` tool implements all three generically, and
+              test_trace_convergence.py exercises every responder that
+              driver has, not just keyed_subagent.
+              Two things only surfaced once "subagent" was actually driven
+              live, neither obvious from reading resolve.py's own
+              docstring alone: (1) HeadlessSession's strict_tool_isolation
+              default (True) passes the provider CLI `--tools ""`, which
+              strips its native subagent-spawning tool along with every
+              other built-in -- naming it in allowed_tools alone doesn't
+              restore it, since that flag only gates permission to a tool
+              that still has to exist first; create_agent_session needed
+              an explicit strict_tool_isolation passthrough to opt back
+              in for this one test. (2) a real subagent's own tool calls
+              are namespaced MCP tool names like any other
+              ("mcp__minimal-test-server__record_note"), not the bare
+              tool-spec name keyed_subagent's in-process
+              run_tool_calling_loop call uses ("record_note") -- a trace
+              search matching by equality missed the subagent case
+              entirely; matching by suffix covers both.
