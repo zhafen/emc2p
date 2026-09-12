@@ -9,7 +9,7 @@ import base64
 import json
 from pathlib import Path
 
-from emc2p.testing.render_trace import parse_trace, render_html
+from emc2p.testing.render_trace import iter_tool_calls, parse_trace, render_html
 
 # The mcp_client_session.py shape: flat type/content/tool_calls/name/is_error.
 _SIMPLE_TRACE = "\n".join(
@@ -330,6 +330,45 @@ class TestActorNestedUnderPendingToolCall:
         turns = parse_trace(_write(tmp_path, trace))
         output = render_html(turns, title="t", source_label="s")
         assert "<summary>keyed_subagent (resolve_event) trace</summary>" in output
+
+
+class TestIterToolCalls:
+    """iter_tool_calls: the flat `[tc for t in turns for tc in t.tool_calls]`
+    a caller might reach for misses anything nested inside a subtrace --
+    exactly where a keyed_subagent-style responder's own calls live once
+    they're nested under their pending host call (see
+    TestActorNestedUnderPendingToolCall). A real regression: a
+    story-simulator test asserting "keyed_subagent's own update_registry
+    call converged into the trace" false-negatived after nesting shipped,
+    because it flattened that way."""
+
+    def test_recurses_into_a_nested_subtrace(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {"type": "assistant", "content": "", "tool_calls": [{"name": "advance_simulation", "arguments": "{}"}]}
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "content": "on it.",
+                        "tool_calls": [{"name": "update_registry", "arguments": "{}"}],
+                        "actor": "keyed_subagent",
+                    }
+                ),
+                json.dumps({"type": "tool_result", "name": "advance_simulation", "is_error": False, "content": "done"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+
+        # The flat form misses it -- it's nested under advance_simulation's subtrace.
+        assert "update_registry" not in [tc.name for t in turns for tc in t.tool_calls]
+        # iter_tool_calls finds it regardless of nesting depth.
+        assert "update_registry" in [tc.name for tc in iter_tool_calls(turns)]
+
+    def test_yields_top_level_calls_too_when_there_is_no_nesting(self, tmp_path: Path):
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        assert [tc.name for tc in iter_tool_calls(turns)] == ["do_thing", "do_thing"]
 
 
 class TestParseAnthropicFormat:

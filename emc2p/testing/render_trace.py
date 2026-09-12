@@ -31,7 +31,7 @@ import html
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 @dataclasses.dataclass
@@ -94,6 +94,24 @@ def parse_trace(path: Path) -> list[Turn]:
         except json.JSONDecodeError:
             continue
     return _normalize_events(events)
+
+
+def iter_tool_calls(turns: list[Turn]) -> Iterator[ToolCall]:
+    """Yield every `ToolCall` in `turns`, recursing into each one's own
+    `subtrace` (a native subagent's own turns, or an actor like
+    keyed_subagent sharing this trace_path -- see `Turn.actor`/`origin`).
+
+    A caller checking "did tool X get called anywhere in this trace"
+    needs this, not `[tc for t in turns for tc in t.tool_calls]`: that
+    flat form only sees a top-level call's own immediate tool_calls,
+    silently missing anything nested one level down inside a subtrace --
+    exactly where a keyed_subagent-style responder's own calls live.
+    """
+    for turn in turns:
+        for tc in turn.tool_calls:
+            yield tc
+            if tc.subtrace:
+                yield from iter_tool_calls(tc.subtrace)
 
 
 def _is_simple_format_event(event: dict[str, Any]) -> bool:
