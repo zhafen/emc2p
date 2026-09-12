@@ -62,6 +62,13 @@ class Turn:
     # dispatch prefix versus a bare name) -- that was a reader-side guess,
     # not something the trace itself stated.
     actor: str = ""
+    # *Why* this turn happened, e.g. "resolve_event" vs. "plan_events" --
+    # a caller-supplied label for which of possibly several call sites
+    # produced the prompt this turn is answering (see `run_tool_calling_loop`'s
+    # own `trace_origin`). Distinct from `actor` (who is answering):
+    # a single actor can serve requests from several different origins.
+    # "" when the writer didn't stamp one.
+    origin: str = ""
 
 
 # ─── Parsing ──────────────────────────────────────────────────────────
@@ -105,14 +112,17 @@ def _simple_format_turn(event: dict[str, Any]) -> Turn | None:
     tolerance of events it doesn't handle)."""
     kind = event.get("type")
     actor = event.get("actor") or ""
+    origin = event.get("origin") or ""
     if kind == "user":
-        return Turn(kind="user", text=event.get("content") or "", actor=actor)
+        return Turn(kind="user", text=event.get("content") or "", actor=actor, origin=origin)
     if kind == "assistant":
         tool_calls = []
         for tc in event.get("tool_calls") or []:
             args = _try_parse_json(tc.get("arguments", "")) or tc.get("arguments", "")
             tool_calls.append(ToolCall(name=tc.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
-        return Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls, actor=actor)
+        return Turn(
+            kind="assistant", text=event.get("content") or "", tool_calls=tool_calls, actor=actor, origin=origin
+        )
     if kind == "tool_result":
         return Turn(
             kind="tool_result",
@@ -120,6 +130,7 @@ def _simple_format_turn(event: dict[str, Any]) -> Turn | None:
             tool_name=event.get("name", ""),
             is_error=bool(event.get("is_error")),
             actor=actor,
+            origin=origin,
         )
     return None
 
@@ -348,7 +359,9 @@ def _render_tool_call(tc: ToolCall) -> str:
         # keyed_subagent) does -- so use its name here when there is one,
         # falling back to the generic label otherwise.
         actors = {t.actor for t in tc.subtrace if t.actor}
-        label = f"{next(iter(actors))} trace" if len(actors) == 1 else "subagent trace"
+        origins = {t.origin for t in tc.subtrace if t.origin}
+        actor_label = next(iter(actors)) if len(actors) == 1 else "subagent"
+        label = f"{actor_label} ({next(iter(origins))}) trace" if len(origins) == 1 else f"{actor_label} trace"
         # Open by default, unlike "arguments"/"decoded payload" above --
         # a nested exchange (a native subagent's own turns, or an actor
         # like keyed_subagent sharing this trace_path) is usually the
@@ -373,6 +386,7 @@ def _render_steps(turns: list[Turn]) -> str:
         body = [f'<div class="step-kind">{_esc(kind_label)}'
                 + (f' · <span class="tool-name">{_esc(turn.tool_name)}</span>' if turn.tool_name else "")
                 + (f' <span class="actor-tag">{_esc(turn.actor)}</span>' if turn.actor else "")
+                + (f' <span class="origin-tag">{_esc(turn.origin)}</span>' if turn.origin else "")
                 + "</div>"]
         if turn.text:
             body.append(f'<div class="step-text">{_esc(turn.text)}</div>')
@@ -455,6 +469,7 @@ h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0; text
 .step-kind { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
 .step-kind .tool-name { text-transform: none; letter-spacing: 0; }
 .actor-tag { display: inline-block; text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent); }
+.origin-tag { display: inline-block; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); }
 .tool-name { font-family: 'IBM Plex Mono', ui-monospace, monospace; color: var(--accent); }
 .step.err .tool-name { color: var(--err); }
 .step-text { font-size: 14.5px; white-space: pre-wrap; word-break: break-word; }

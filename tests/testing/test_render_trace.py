@@ -148,6 +148,51 @@ class TestActorLabel:
         assert '<span class="actor-tag">' not in output
 
 
+class TestOriginLabel:
+    """`origin`, when a writer stamps it (`run_tool_calling_loop`'s own
+    `trace_origin`), identifies *why* a turn happened -- e.g. which of a
+    project's several call sites constructed the prompt a keyed_subagent
+    responder is answering -- distinct from `actor` (*who* is answering).
+    Never folded into the prompt text itself, so it's inspectable without
+    ever reaching the model's own context."""
+
+    def test_origin_captured_on_every_event_type(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps({"type": "user", "content": "decide.", "origin": "resolve_event"}),
+                json.dumps(
+                    {"type": "assistant", "content": "on it.", "tool_calls": [], "origin": "resolve_event"}
+                ),
+                json.dumps(
+                    {
+                        "type": "tool_result",
+                        "name": "update_registry",
+                        "is_error": False,
+                        "content": "ok",
+                        "origin": "resolve_event",
+                    }
+                ),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        assert [t.origin for t in turns] == ["resolve_event"] * 3
+
+    def test_origin_shown_in_rendered_html(self, tmp_path: Path):
+        trace = json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "origin": "plan_events"})
+        turns = parse_trace(_write(tmp_path, trace))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<span class="origin-tag">plan_events</span>' in output
+
+    def test_no_origin_tag_rendered_when_absent(self, tmp_path: Path):
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<span class="origin-tag">' not in output
+
+    def test_origin_defaults_to_empty_when_absent(self, tmp_path: Path):
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        assert all(t.origin == "" for t in turns)
+
+
 class TestActorNestedUnderPendingToolCall:
     """A nested call (e.g. keyed_subagent's own run_tool_calling_loop)
     shares its parent's trace_path, so its "actor"-stamped events land
@@ -255,6 +300,36 @@ class TestActorNestedUnderPendingToolCall:
         turns = parse_trace(_write(tmp_path, trace))
         output = render_html(turns, title="t", source_label="s")
         assert "<summary>keyed_subagent trace</summary>" in output
+
+    def test_rendered_summary_names_the_actor_and_origin(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {"type": "assistant", "content": "", "tool_calls": [{"name": "advance_simulation", "arguments": "{}"}]}
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "content": "decide.",
+                        "actor": "keyed_subagent",
+                        "origin": "resolve_event",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "content": "on it.",
+                        "tool_calls": [],
+                        "actor": "keyed_subagent",
+                        "origin": "resolve_event",
+                    }
+                ),
+                json.dumps({"type": "tool_result", "name": "advance_simulation", "is_error": False, "content": "done"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        output = render_html(turns, title="t", source_label="s")
+        assert "<summary>keyed_subagent (resolve_event) trace</summary>" in output
 
 
 class TestParseAnthropicFormat:

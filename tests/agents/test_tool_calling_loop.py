@@ -279,6 +279,50 @@ class TestTracePath:
         assert all(t.actor == "" for t in turns)
         assert "actor" not in json.loads(trace_path.read_text().splitlines()[0])
 
+    def test_trace_origin_is_stamped_on_every_event_when_given(self, monkeypatch, tmp_path):
+        """A caller-supplied `trace_origin` (e.g. which of a project's
+        several call sites constructed this prompt) gets recorded on
+        every event, distinct from `trace_actor` (who is answering)."""
+        tool_call = _FakeToolCall("call_1", "view_entity", {"entity_id": "car_a"})
+        _queue_responses(
+            monkeypatch,
+            [
+                _FakeResponse(_FakeMessage(tool_calls=[tool_call])),
+                _FakeResponse(_FakeMessage(content="parked, per view_entity.")),
+            ],
+        )
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "car_b_drive's end_time has been reached -- decide what happens.",
+                model="test-model",
+                dispatch=lambda name, arguments: "car_a: position=driveway",
+                trace_path=trace_path,
+                trace_actor="keyed_subagent",
+                trace_origin="resolve_event",
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert [t.kind for t in turns] == ["user", "assistant", "tool_result", "assistant"]
+        assert [t.actor for t in turns] == ["keyed_subagent"] * 4
+        assert [t.origin for t in turns] == ["resolve_event"] * 4
+
+    def test_trace_origin_omitted_by_default(self, monkeypatch, tmp_path):
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?", model="test-model", dispatch=lambda n, a: "x", trace_path=trace_path
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert all(t.origin == "" for t in turns)
+        assert "origin" not in json.loads(trace_path.read_text().splitlines()[0])
+
     def test_dispatch_error_recorded_as_an_error_tool_result(self, monkeypatch, tmp_path):
         tool_call = _FakeToolCall("call_1", "update_registry", {"yaml_string": "bad"})
         _queue_responses(

@@ -121,6 +121,7 @@ async def run_tool_calling_loop(
     on_response: Callable[[Any], None] | None = None,
     trace_path: Path | None = None,
     trace_actor: str | None = None,
+    trace_origin: str | None = None,
 ) -> str:
     """Answer `prompt` via `model`, letting it call `tools` (dispatched
     through `dispatch`) as many times as needed before a final text answer.
@@ -168,17 +169,30 @@ async def run_tool_calling_loop(
     what this call was actually asked to do short of separately hunting
     it down (e.g. story-simulator's own diagnostic
     `.write_call_trace.jsonl`, which each caller may or may not have).
+
+    `trace_origin`, if given, is stamped onto every event this call
+    writes too (an `"origin"` key, alongside `"actor"`) -- a caller-
+    supplied label for *why* this call happened (e.g. which of a
+    project's several call sites constructed `prompt`), distinct from
+    `trace_actor`'s *who is answering* -- see `render_trace`'s own
+    Turn.origin. Never folded into `prompt` itself: a caller wanting
+    this recorded without it ever reaching the model's own context
+    passes it here instead of concatenating it into the prompt text.
     """
     if trace_path is not None:
         event: dict[str, Any] = {"type": "user", "content": prompt}
         if trace_actor is not None:
             event["actor"] = trace_actor
+        if trace_origin is not None:
+            event["origin"] = trace_origin
         _append_trace_event(trace_path, event)
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(model=model, messages=messages, tools=tools)
     _log_usage(response, usage_log_path)
     if trace_path is not None:
-        _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message, trace_actor))
+        _append_trace_event(
+            trace_path, _assistant_trace_event(response.choices[0].message, trace_actor, trace_origin)
+        )
     if on_response is not None:
         on_response(response)
 
@@ -210,11 +224,15 @@ async def run_tool_calling_loop(
                 }
                 if trace_actor is not None:
                     event["actor"] = trace_actor
+                if trace_origin is not None:
+                    event["origin"] = trace_origin
                 _append_trace_event(trace_path, event)
         response = await litellm.acompletion(model=model, messages=messages, tools=tools)
         _log_usage(response, usage_log_path)
         if trace_path is not None:
-            _append_trace_event(trace_path, _assistant_trace_event(response.choices[0].message, trace_actor))
+            _append_trace_event(
+                trace_path, _assistant_trace_event(response.choices[0].message, trace_actor, trace_origin)
+            )
         if on_response is not None:
             on_response(response)
 
@@ -223,7 +241,9 @@ async def run_tool_calling_loop(
     return response.choices[0].message.content or ""
 
 
-def _assistant_trace_event(message: Any, actor: str | None = None) -> dict[str, Any]:
+def _assistant_trace_event(
+    message: Any, actor: str | None = None, origin: str | None = None
+) -> dict[str, Any]:
     """render_trace's "simple format" shape for one assistant response.
 
     Arguments are parsed back into a dict where possible (matching what
@@ -243,6 +263,8 @@ def _assistant_trace_event(message: Any, actor: str | None = None) -> dict[str, 
     event: dict[str, Any] = {"type": "assistant", "content": message.content or "", "tool_calls": tool_calls}
     if actor is not None:
         event["actor"] = actor
+    if origin is not None:
+        event["origin"] = origin
     return event
 
 
