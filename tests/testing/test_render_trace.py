@@ -148,6 +148,115 @@ class TestActorLabel:
         assert '<span class="actor-tag">' not in output
 
 
+class TestActorNestedUnderPendingToolCall:
+    """A nested call (e.g. keyed_subagent's own run_tool_calling_loop)
+    shares its parent's trace_path, so its "actor"-stamped events land
+    interleaved into the same flat file, between the outer host tool
+    call that triggered it (e.g. advance_simulation) and that call's own
+    eventual result -- the outer dispatch can't write its result until
+    the nested call returns. Left flat, a reader sees the outer call
+    followed by an unrelated exchange with no result in sight, which
+    reads as the result having gone missing. It should nest instead,
+    the same way a native subagent's own turns already do."""
+
+    def test_interleaved_actor_run_nests_under_the_pending_call(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {"type": "assistant", "content": "", "tool_calls": [{"name": "advance_simulation", "arguments": "{}"}]}
+                ),
+                json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"}),
+                json.dumps(
+                    {
+                        "type": "tool_result",
+                        "name": "update_registry",
+                        "is_error": False,
+                        "content": "ok",
+                        "actor": "keyed_subagent",
+                    }
+                ),
+                json.dumps({"type": "tool_result", "name": "advance_simulation", "is_error": False, "content": "done"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+
+        # The nested run doesn't show up as its own top-level turns --
+        # the outer call is followed directly by its own result.
+        assert [t.kind for t in turns] == ["assistant", "tool_result"]
+        assert turns[1].tool_name == "advance_simulation"
+
+        [call] = turns[0].tool_calls
+        assert call.name == "advance_simulation"
+        assert [t.actor for t in call.subtrace] == ["keyed_subagent", "keyed_subagent"]
+
+    def test_nests_under_the_specific_call_still_pending_in_a_multi_call_turn(self, tmp_path: Path):
+        """Two tool calls in one turn, dispatched and resulted one at a
+        time -- the actor run interleaves after the first result, while
+        the second call is the one actually pending, so it must nest
+        there, not on the first (already-resolved) call."""
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {"name": "view_registry", "arguments": "{}"},
+                            {"name": "advance_simulation", "arguments": "{}"},
+                        ],
+                    }
+                ),
+                json.dumps({"type": "tool_result", "name": "view_registry", "is_error": False, "content": "..."}),
+                json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"}),
+                json.dumps({"type": "tool_result", "name": "advance_simulation", "is_error": False, "content": "done"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+
+        assert [t.kind for t in turns] == ["assistant", "tool_result", "tool_result"]
+        view_call, advance_call = turns[0].tool_calls
+        assert view_call.subtrace is None
+        assert [t.actor for t in advance_call.subtrace] == ["keyed_subagent"]
+
+    def test_actor_run_with_no_pending_call_falls_back_to_top_level(self, tmp_path: Path):
+        """No outer host call was awaiting this run (e.g. the trace is
+        nothing but a nested exchange) -- surface the turns directly
+        rather than silently dropping them."""
+        trace = json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"})
+        turns = parse_trace(_write(tmp_path, trace))
+        assert [t.actor for t in turns] == ["keyed_subagent"]
+
+    def test_actor_run_unflushed_at_end_of_file_is_not_dropped(self, tmp_path: Path):
+        """The file can end mid-nested-run (e.g. captured while the
+        session was still live) -- flush whatever's buffered rather than
+        losing it."""
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {"type": "assistant", "content": "", "tool_calls": [{"name": "advance_simulation", "arguments": "{}"}]}
+                ),
+                json.dumps({"type": "assistant", "content": "still going", "tool_calls": [], "actor": "keyed_subagent"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        [call] = turns[0].tool_calls
+        assert [t.actor for t in call.subtrace] == ["keyed_subagent"]
+
+    def test_rendered_summary_names_the_actor(self, tmp_path: Path):
+        trace = "\n".join(
+            [
+                json.dumps(
+                    {"type": "assistant", "content": "", "tool_calls": [{"name": "advance_simulation", "arguments": "{}"}]}
+                ),
+                json.dumps({"type": "assistant", "content": "on it.", "tool_calls": [], "actor": "keyed_subagent"}),
+                json.dumps({"type": "tool_result", "name": "advance_simulation", "is_error": False, "content": "done"}),
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, trace))
+        output = render_html(turns, title="t", source_label="s")
+        assert "<summary>keyed_subagent trace</summary>" in output
+
+
 class TestParseAnthropicFormat:
     def test_system_event_skipped_and_turn_kinds_correct(self, tmp_path: Path):
         turns = parse_trace(_write(tmp_path, _ANTHROPIC_TRACE))

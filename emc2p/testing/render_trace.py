@@ -132,19 +132,67 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
     same id to the actual `ToolCall` object built for it, so a later
     `task_notification` event (see `_attach_subagent_subtrace`) can attach
     a native subagent's own turns directly onto it.
+
+    A writer sharing this trace_path from *inside* an outer tool call --
+    e.g. keyed_subagent's own nested `run_tool_calling_loop`, dispatched
+    while the outer `advance_simulation` call is still awaiting its own
+    result -- interleaves its "actor"-stamped events into this same flat
+    file, in between that outer call and its eventual result (the outer
+    dispatch doesn't return, and so can't write its own result event,
+    until the nested call finishes). Left flat, a reader sees the outer
+    call followed immediately by a long, unrelated exchange and no result
+    in sight, which reads as the result having gone missing rather than
+    just being much further down. `emit` buffers a contiguous run of
+    actor-stamped turns and, once the file returns to unstamped ("host")
+    events, attaches them as `subtrace` on whichever host ToolCall was
+    still awaiting its result when the run began -- tracked via
+    `pending_tool_calls`, a FIFO queue of not-yet-resulted host
+    ToolCalls (safe because a dispatch loop always awaits one tool's
+    result before issuing the next, so at most the head of this queue is
+    ever actually in flight). This gives an actor's nested exchange the
+    same "subagent trace" nesting `_attach_subagent_subtrace` already
+    gives a native subagent's own turns, so the outer call's result
+    renders right after its call either way.
     """
     turns: list[Turn] = []
     tool_names: dict[str, str] = {}
     tool_calls_by_id: dict[str, ToolCall] = {}
+    pending_tool_calls: list[ToolCall] = []
+    actor_buffer: list[Turn] = []
+
+    def flush_actor_buffer() -> None:
+        # No host ToolCall was actually awaiting this run (e.g. a trace
+        # that's nothing but a nested exchange, no outer call at all) --
+        # fall back to surfacing the turns directly rather than silently
+        # dropping them.
+        nonlocal actor_buffer
+        if not actor_buffer:
+            return
+        if pending_tool_calls:
+            pending_tool_calls[0].subtrace = actor_buffer
+        else:
+            turns.extend(actor_buffer)
+        actor_buffer = []
+
+    def emit(turn: Turn) -> None:
+        if turn.actor:
+            actor_buffer.append(turn)
+            return
+        flush_actor_buffer()
+        turns.append(turn)
+        pending_tool_calls.extend(turn.tool_calls)
+        if turn.kind == "tool_result" and pending_tool_calls:
+            pending_tool_calls.pop(0)
+
     for event in events:
         if _is_simple_format_event(event):
             turn = _simple_format_turn(event)
             if turn is not None:
-                turns.append(turn)
+                emit(turn)
             continue
         etype = event.get("type")
         if etype == "result":
-            turns.append(Turn(kind="final", text=str(event.get("result", ""))))
+            emit(Turn(kind="final", text=str(event.get("result", ""))))
             continue
         if etype == "system" and event.get("subtype") == "task_notification":
             _attach_subagent_subtrace(event, tool_calls_by_id)
@@ -166,7 +214,7 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                 tool_call = ToolCall(name=b.get("name", ""), arguments=args, decoded=_decode_blobs(args))
                 tool_calls_by_id[tool_use_id] = tool_call
                 tool_calls.append(tool_call)
-            turns.append(Turn(kind="assistant", text="\n".join(p for p in text_parts if p), tool_calls=tool_calls))
+            emit(Turn(kind="assistant", text="\n".join(p for p in text_parts if p), tool_calls=tool_calls))
         elif etype == "user":
             for b in blocks:
                 if b.get("type") == "tool_result":
@@ -177,7 +225,7 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                         )
                     else:
                         result_text = str(result_content or "")
-                    turns.append(
+                    emit(
                         Turn(
                             kind="tool_result",
                             text=result_text,
@@ -186,7 +234,11 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                         )
                     )
                 elif b.get("type") == "text" and b.get("text"):
-                    turns.append(Turn(kind="user", text=b["text"]))
+                    emit(Turn(kind="user", text=b["text"]))
+    # The file can end mid-nested-run (e.g. a trace captured while its
+    # session was still live) -- flush whatever's left rather than
+    # dropping it.
+    flush_actor_buffer()
     return turns
 
 
@@ -290,8 +342,15 @@ def _render_tool_call(tc: ToolCall) -> str:
             f'<div class="blob-content">{_render_decoded_value(decoded)}</div></details>'
         )
     if tc.subtrace:
+        # A native subagent's own turns (attached by
+        # _attach_subagent_subtrace) never carry an actor -- only a
+        # nested in-process call sharing this trace_path (e.g.
+        # keyed_subagent) does -- so use its name here when there is one,
+        # falling back to the generic label otherwise.
+        actors = {t.actor for t in tc.subtrace if t.actor}
+        label = f"{next(iter(actors))} trace" if len(actors) == 1 else "subagent trace"
         parts.append(
-            '<details class="blob"><summary>subagent trace</summary>'
+            f'<details class="blob"><summary>{_esc(label)}</summary>'
             f'<div class="blob-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
         )
     parts.append("</div>")
