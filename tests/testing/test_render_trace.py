@@ -555,6 +555,15 @@ class TestNativeSubagentSubtrace:
         output = render_html(turns, title="t", source_label="s")
         assert '<details class="blob" open><summary>subagent trace</summary>' in output
 
+    def test_nested_subtrace_gets_a_taller_scrolling_window(self, tmp_path: Path):
+        """A nested exchange can run to hundreds of turns -- it needs a
+        much taller scroll window than the compact arguments/decoded-
+        payload blobs it sits alongside, not the same default."""
+        output_path = self._write_output_file(tmp_path)
+        turns = parse_trace(_write(tmp_path, self._parent_trace(output_path)))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<div class="blob-content subtrace-content">' in output
+
 
 class TestRenderHtml:
     def test_renders_without_error_and_includes_key_content(self, tmp_path: Path):

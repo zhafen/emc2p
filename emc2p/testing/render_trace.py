@@ -370,7 +370,7 @@ def _render_tool_call(tc: ToolCall) -> str:
         # happened between the call and its result.
         parts.append(
             f'<details class="blob" open><summary>{_esc(label)}</summary>'
-            f'<div class="blob-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
+            f'<div class="blob-content subtrace-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
         )
     parts.append("</div>")
     return "".join(parts)
@@ -481,6 +481,11 @@ details.blob > summary::-webkit-details-marker { display: none; }
 details.blob > summary::before { content: "▸ "; }
 details.blob[open] > summary::before { content: "▾ "; }
 .blob-content { padding: 0 14px 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: var(--text); max-height: 340px; overflow-y: auto; }
+/* A nested exchange (subagent/keyed_subagent) can run to hundreds of
+   turns -- arguments/decoded-payload blobs above stay compact, but this
+   one gets a much taller scrolling window so a reader can actually
+   browse it instead of scrolling a few lines at a time. */
+.blob-content.subtrace-content { max-height: 1400px; font-size: 13.5px; }
 .blob-content pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .blob-content p { margin: 0 0 .8em; font-family: 'Manrope', sans-serif; white-space: pre-wrap; }
 .blob-content p:last-child { margin-bottom: 0; }
