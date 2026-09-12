@@ -11,6 +11,30 @@ file_info:
           requirements/solutions.
     - file_info
 
+tool_for_data_driven_mcps:
+    data:
+        - description: >
+            The EMC2p mission--to be a valuable tool for data-driven MCPs.
+        - requirement
+    emc2p_testing_framework:
+        data:
+            - description: The EMC2P testing framework is one of the things that make
+                it a powerful tool.
+            - solution
+        test_live_performance_of_mcps:
+            data:
+                - requirement
+            emc2p_agent_session:
+                data:
+                    - description: Our solution
+                    - solution
+                account_for_live_test_flakiness:
+                    - requirement
+                swap_different_agents_in_easily:
+                    - requirement
+        interpretable_results:
+            - requirement
+
 deduplication_tool:
     - description: >
           scripts/find_duplicate_component_types.py, exposed as an MCP
