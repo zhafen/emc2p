@@ -14,6 +14,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 
 from emc2p.mcp_server import RegistrarSessions
+from emc2p.registrar import Registrar
 
 STATUS_BOARD_SCENARIO_DIR = "tests/data/scenarios/status_board"
 
@@ -214,6 +215,45 @@ class TestExportDir:
         assert not export_dir.exists()
 
 
+class TestTracePath:
+    """single_shared_trace_file: RegistrarSessions remembering a client's
+    own trace_path, readable back by an in-process responder (e.g.
+    keyed_subagent) wanting to append to that same file.
+    """
+
+    pytestmark = pytest.mark.slow
+
+    def test_no_trace_path_recorded_when_not_given(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        sessions.open(session, _db_url(tmp_path))
+        assert sessions.get_trace_path(session) is None
+
+    def test_client_trace_path_round_trips_through_set_registrar(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        trace_path = tmp_path / "session_trace.jsonl"
+        registrar = Registrar.load(_db_url(tmp_path))
+        sessions.set_registrar(session, registrar, client_trace_path=str(trace_path))
+        assert sessions.get_trace_path(session) == trace_path
+
+    def test_get_trace_path_for_unknown_session_returns_none(self, tmp_path):
+        sessions = RegistrarSessions()
+        assert sessions.get_trace_path(_session()) is None
+
+    def test_trace_path_and_export_dir_are_independent(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        trace_path = tmp_path / "session_trace.jsonl"
+        export_dir = tmp_path / "export"
+        registrar = Registrar.load(_db_url(tmp_path))
+        sessions.set_registrar(
+            session, registrar, export_dir=str(export_dir), client_trace_path=str(trace_path)
+        )
+        assert sessions.get_trace_path(session) == trace_path
+        assert sessions._export_dirs[session] == export_dir
+
+
 class TestTimeProvider:
     pytestmark = pytest.mark.slow
 
@@ -240,7 +280,7 @@ class TestTimeProvider:
             "        value: hello\n",
         )
         registrar = sessions.get_registrar(session)
-        assert registrar.get_current_value("timed", "time", "thing_a") == 42.0
+        assert registrar.view_current("timed.time", "thing_a").to_scalar() == 42.0
 
     def test_default_time_provider_is_a_no_op(self, tmp_path):
         """No time_provider given -- time_dimension fields stay null, matching plain registrar.update() behavior."""
@@ -266,7 +306,7 @@ class TestTimeProvider:
             "        value: hello\n",
         )
         registrar = sessions.get_registrar(session)
-        value = registrar.get_current_value("timed", "time", "thing_a")
+        value = registrar.view_current("timed.time", "thing_a").to_scalar()
         assert value is None or math.isnan(value)
 
 

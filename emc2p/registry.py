@@ -30,6 +30,61 @@ def _format_field_value(value) -> str:
     return str(value)
 
 
+class GetterResult:
+    """Wraps one getter's data, deferring the final shape to the caller.
+
+    .to_table()/.to_pandas() for a possibly-multi-row result;
+    .to_dict()/.to_scalar() when exactly one row (and, for .to_scalar(),
+    exactly one non-id column) is expected -- this is how a getter's
+    result becomes "singular" rather than there being a separate method
+    for it. Scope, for now: just these tabular_output_formats
+    projections -- not the other four output_format leaf categories from
+    docs/manifest/getter_api_combinations.md. Future work, not silently
+    dropped.
+    """
+
+    def __init__(self, table: ibis.Table):
+        self._table = table
+
+    def to_table(self) -> ibis.Table:
+        """The result as a lazy ibis Table."""
+        return self._table
+
+    def to_pandas(self) -> pd.DataFrame:
+        """The result as an executed pandas DataFrame."""
+        return self._table.execute()
+
+    def to_dict(self) -> dict:
+        """The one matching row as {column: value}.
+
+        Returns {} if nothing matched. Raises ValueError if more than one
+        row matched -- ambiguous which one "the" result is.
+        """
+        df = self.to_pandas()
+        if df.empty:
+            return {}
+        if len(df) > 1:
+            raise ValueError(f"Expected exactly one row, got {len(df)}.")
+        return df.iloc[0].to_dict()
+
+    def to_scalar(self) -> Any:
+        """The single value in the one matching row's one data column.
+
+        Returns None if nothing matched. Raises ValueError if more than
+        one row matched, or the row has more than one non-id column
+        (ambiguous which value is "the" result) -- unlike the old
+        get_current_value's behavior of silently taking the last matching
+        row, this is a deliberate tightening.
+        """
+        row = self.to_dict()
+        if not row:
+            return None
+        data_cols = [k for k in row if k not in ("entity_id", "entity_id.alias")]
+        if len(data_cols) != 1:
+            raise ValueError(f"Expected exactly one data column, got {data_cols}.")
+        return row[data_cols[0]]
+
+
 class Registry:
     """A registry that stores ECS component data as ibis tables.
 
@@ -385,16 +440,16 @@ class Registry:
         return ibis.memtable([], schema={"entity_id": "string", "value": "string"})
 
     def view(
-        self, component_type: str | list[str], aliases: str | list[str] | None = None
-    ) -> ibis.Table:
-        """Return a copy of the dataframe for the given component type(s).
+        self, component_type: str | list[str], entity: str | list[str] | None = None
+    ) -> GetterResult:
+        """Return the joined data for the given component type(s), as a GetterResult.
 
         Args:
             component_type: A component type name, a dotted "table.field"
                 string, or a list of either. All results are inner-joined by
                 entity_id with columns named "table.field". ``entity_id.alias``
                 is prepended automatically unless already requested.
-            aliases: An entity ref, or list of them, to filter the result
+            entity: An entity ref, or list of them, to filter the result
                 down to. Each is resolved the same way `get_entity_id` does
                 (exact hash, else exact alias, else substring match), except
                 a ref matching more than one entity is not an error here —
@@ -407,11 +462,11 @@ class Registry:
         Raises:
             KeyError: If a component type doesn't exist in the registry.
         """
-        return self._view(component_type, self._table_or_declared, aliases)
+        return GetterResult(self._view(component_type, self._table_or_declared, entity))
 
     def view_current(
-        self, component_type: str | list[str], aliases: str | list[str] | None = None
-    ) -> ibis.Table:
+        self, component_type: str | list[str], entity: str | list[str] | None = None
+    ) -> GetterResult:
         """Like ``view``, but collapsed to the most recent version of each record.
 
         For any component type with a field flagged ``time_dimension: true`` in
@@ -431,65 +486,101 @@ class Registry:
 
         Args:
             component_type: Same as ``view``.
-            aliases: Same as ``view``.
+            entity: Same as ``view``.
 
         Raises:
             KeyError: If a component type doesn't exist in the registry.
             ValueError: If a component type has more than one time_dimension field.
         """
-        return self._view(component_type, self._current_table, aliases)
+        return GetterResult(self._view(component_type, self._current_table, entity))
 
     def safe_view(
-        self, component_type: str | list[str], aliases: str | list[str] | None = None
-    ) -> pd.DataFrame | None:
-        """Like `view`, but returns None instead of raising for an unknown component type.
+        self, component_type: str | list[str], entity: str | list[str] | None = None
+    ) -> GetterResult:
+        """Like `view`, but returns an empty GetterResult instead of raising
+        for an unknown component type.
 
         A component type that's declared (see `declare_schema`) but has no
-        data yet still comes back as an empty DataFrame, not None -- only a
+        data yet still comes back as an empty result, not an error -- only a
         component type unknown to the registry entirely is safed away.
 
         Args:
             component_type: Same as `view`.
-            aliases: Same as `view`.
+            entity: Same as `view`.
         """
         try:
-            return self.view(component_type, aliases).execute()
+            return self.view(component_type, entity)
         except KeyError:
-            return None
+            return GetterResult(ibis.memtable([], schema={"entity_id": "string", "value": "string"}))
 
     def safe_view_current(
-        self, component_type: str | list[str], aliases: str | list[str] | None = None
-    ) -> pd.DataFrame | None:
+        self, component_type: str | list[str], entity: str | list[str] | None = None
+    ) -> GetterResult:
         """Like `safe_view`, but resolves each field's current row per entity (see `view_current`)."""
         try:
-            return self.view_current(component_type, aliases).execute()
+            return self.view_current(component_type, entity)
         except KeyError:
-            return None
+            return GetterResult(ibis.memtable([], schema={"entity_id": "string", "value": "string"}))
 
-    def get_current_value(self, component_type: str, field: str = "value", alias: str | None = None) -> Any:
-        """The current `component_type.field` value for one entity, or None.
+    def view_entities(self, entity: str | list[str]) -> GetterResult:
+        """Return all recorded component data for the given entity/entities.
 
-        A safe, single-value convenience over `view_current` for the common
-        "what's this entity's current X" read -- resolves to None (rather
-        than raising) whenever there's nothing to return: `component_type`
-        isn't loaded yet, or nothing matches `alias`. Not for multi-entity
-        reads: pass a specific `alias` naming exactly one entity; use
-        `view_current` directly for a whole table.
+        Symmetric to `view`: that fixes which components and lets entities
+        vary; this fixes which entities and returns everything recorded
+        about them across every component type, one row per entity, via a
+        full outer join on entity_id -- an inner join would drop almost
+        every entity here, since essentially none have data in every
+        component table. A component missing for a given entity comes back
+        as nulls for that entity's row, not a dropped row.
 
-        Args:
-            component_type: The component type to read.
-            field: The field to read (defaults to "value", the sole field
-                most single-value component types use).
-            alias: An entity ref identifying exactly one entity (same
-                resolution as `view`'s own `aliases`).
+        `entity` is resolved via the same logic `view`'s own `entity` uses
+        (see `_resolve_aliases`); required here, since choosing entities is
+        this method's whole purpose.
 
-        Returns:
-            The current value, or None if nothing is recorded yet.
+        For a single entity's data as a flat mapping (replacing the old
+        get_current_value for the common "current value of one field"
+        case), pair this with GetterResult.to_dict()/.to_scalar(), e.g.
+        ``view_entities_current(entity).to_dict()``.
+
+        Raises:
+            KeyError: If `entity` resolves to no entity at all. An individual
+                unresolvable ref within a list just warns (see
+                `_resolve_aliases`) as long as at least one ref resolves.
         """
-        df = self.safe_view_current(f"{component_type}.{field}", aliases=alias)
-        if df is None or df.empty:
-            return None
-        return df.iloc[-1][f"{component_type}.{field}"]
+        resolved = self._resolve_aliases(entity)
+        if not resolved:
+            raise KeyError(f"{entity!r} did not resolve to any entity.")
+        component_type = [ct for ct in self.component_types if ct != "entity_id"]
+        result = self._view(component_type, self._table_or_declared, how="outer")
+        return GetterResult(result.filter(result["entity_id"].isin(resolved)))
+
+    def view_entities_current(self, entity: str | list[str]) -> GetterResult:
+        """Like `view_entities`, collapsed to current SCD value (see `view_current`)."""
+        resolved = self._resolve_aliases(entity)
+        if not resolved:
+            raise KeyError(f"{entity!r} did not resolve to any entity.")
+        component_type = [ct for ct in self.component_types if ct != "entity_id"]
+        result = self._view(component_type, self._current_table, how="outer")
+        return GetterResult(result.filter(result["entity_id"].isin(resolved)))
+
+    def safe_view_entities(self, entity: str | list[str]) -> GetterResult:
+        """Like `view_entities`, but returns an empty GetterResult instead
+        of raising when `entity` resolves to nothing."""
+        try:
+            return self.view_entities(entity)
+        except KeyError:
+            return GetterResult(
+                ibis.memtable([], schema={"entity_id": "string", "entity_id.alias": "string"})
+            )
+
+    def safe_view_entities_current(self, entity: str | list[str]) -> GetterResult:
+        """Like `safe_view_entities`, collapsed to current SCD value (see `view_entities_current`)."""
+        try:
+            return self.view_entities_current(entity)
+        except KeyError:
+            return GetterResult(
+                ibis.memtable([], schema={"entity_id": "string", "entity_id.alias": "string"})
+            )
 
     def _resolve_aliases(self, aliases: str | list[str]) -> set[str]:
         """Resolve `aliases` to the union of entity_ids they match.
@@ -540,6 +631,7 @@ class Registry:
         component_type: str | list[str],
         table_fn,
         aliases: str | list[str] | None = None,
+        how: str = "inner",
     ) -> ibis.Table:
         if isinstance(component_type, str):
             component_type = [component_type]
@@ -589,7 +681,11 @@ class Registry:
 
         result = tables_to_join[0]
         for t in tables_to_join[1:]:
-            result = result.inner_join(t, "entity_id")
+            result = result.join(t, "entity_id", how=how)
+            if how != "inner":
+                result = result.mutate(
+                    entity_id=ibis.coalesce(result["entity_id"], result["entity_id_right"])
+                ).drop("entity_id_right")
 
         if aliases is not None:
             resolved = self._resolve_aliases(aliases)
@@ -669,22 +765,13 @@ class Registry:
             )
         return fields[0] if fields else None
 
-    def view_df(
-        self, component_type: str | list[str], aliases: str | list[str] | None = None
-    ) -> pd.DataFrame:
-        """Convenience method to return the view as a DataFrame."""
-        result = self.view(component_type, aliases)
-        df = result.execute()
-        df = df.set_index("entity_id")
-        return df
-
     def summarize_components(self, limit: int = 20) -> str:
         """Markdown report of every component type currently holding data, one
         section per type with its row count and up to `limit` sample rows.
 
         Only `component_types` (data-bearing), not the larger
         `known_component_types` -- nothing to report on a type nobody's
-        written to yet. Unlike `view_df` (one type at a time), this covers
+        written to yet. Unlike `view` (one type at a time), this covers
         everything in one call. Purely a data report -- no judgment or
         instructions attached to it; a caller wanting to prompt a reader
         toward consolidating duplicate/misplaced data on top of this (e.g.
@@ -696,7 +783,7 @@ class Registry:
             return "No component types have any data yet -- nothing to review."
         sections = []
         for component_type in types:
-            df = self.view_df(component_type).reset_index()
+            df = self.view(component_type).to_pandas()
             sample = df.head(limit).fillna("null").to_markdown(index=False)
             if len(df) > limit:
                 sample += f"\n... ({len(df) - limit} more row(s) not shown)"
@@ -735,34 +822,18 @@ class Registry:
         candidates = candidate_entity_ids(entity_ref, entity_id_df)
         return candidates[0] if len(candidates) == 1 else None
 
-    def view_entity_df(self, entity_id: str) -> dict[str, pd.DataFrame]:
-        """Return component data for a specific entity, keyed by component type.
-
-        `entity_id` is resolved via `get_entity_id` first, so this accepts
-        anything that already does — the internal hash, an exact alias, or
-        an unambiguous path fragment — and returns `{}` for a ref that
-        doesn't resolve to exactly one entity, the same as it already did
-        for a bare unknown ref.
-
-        Args:
-            entity_id: Entity hash, alias, or path fragment identifying the entity.
-        """
-        resolved_id = self.get_entity_id(entity_id)
-        if resolved_id is None:
-            return {}
-        result = {}
-        for comp_type in self._component_types:
-            try:
-                df = self.view_df(comp_type).reset_index()
-            except Exception:
-                continue
-            match = df[df["entity_id"] == resolved_id]
-            if not match.empty:
-                result[comp_type] = match.set_index("entity_id")
-        return result
-
     def view_entity(self, entity_id: str, format: str = "markdown") -> str:
         """Return all component data for a specific entity as a formatted string.
+
+        Queries each component type individually (like the old
+        view_entity_df) rather than through view_entities' single joined
+        query -- an entity with real multi-row history (SCD or otherwise)
+        in more than one component type would fan out combinatorially if
+        those components were cross-joined together, which is exactly
+        what view_entities' full-history join does. Querying one
+        component type at a time, each already filtered to this entity,
+        avoids that: every historical row for every component type is
+        shown, without cross-multiplying them against each other.
 
         Args:
             entity_id: Entity hash, alias, or path fragment identifying the
@@ -770,20 +841,54 @@ class Registry:
             format: Output format — "markdown" (default, a `key: value`
                 outline, not a table) or "csv".
         """
-        components = self.view_entity_df(entity_id)
-        if not components:
+        resolved_id = self.get_entity_id(entity_id)
+        by_type: dict[str, pd.DataFrame] = {}
+        if resolved_id is not None:
+            for comp_type in self.component_types:
+                # "component_type" isn't entity data -- it's the registry's
+                # own bookkeeping of which component types this entity
+                # carries (one row per type, each shaped identically:
+                # derived/implicit_parent/skip_on_export). Every other
+                # section already names its own type in its "## " heading,
+                # so showing this too is pure noise: a run of
+                # near-identical, hard-to-tell-apart blocks in front of the
+                # entity's actual data rather than after it.
+                if comp_type == "component_type":
+                    continue
+                try:
+                    df = self.view(comp_type, resolved_id).to_pandas()
+                except Exception:
+                    continue
+                if not df.empty:
+                    by_type[comp_type] = df
+        if not by_type:
             return f"No data found for entity {entity_id!r}."
         if format != "markdown":
-            sections = [f"# {comp_type}\n\n{df.to_csv()}" for comp_type, df in components.items()]
+            sections = [
+                f"# {comp_type}\n\n{df.to_csv(index=False)}" for comp_type, df in by_type.items()
+            ]
             return "\n\n".join(sections)
         lines = [f"# {entity_id}"]
-        for comp_type, df in components.items():
+        for comp_type, df in by_type.items():
             prefix = f"{comp_type}."
-            for _, row in df.reset_index().iterrows():
+            for _, row in df.iterrows():
                 lines.append(f"\n## {comp_type}")
-                for k, v in row.items():
-                    if k in ("entity_id", "entity_id.alias"):
+                fields = {
+                    (key[len(prefix):] if key.startswith(prefix) else key): value
+                    for key, value in row.items()
+                    if key not in ("entity_id", "entity_id.alias")
+                }
+                for field, value in fields.items():
+                    # An entity_ref field (e.g. "value") resolves during
+                    # derive to a companion "{field}_eid" column holding the
+                    # target's raw entity_id hash (see
+                    # dataflows.derive.resolve_paths) -- an internal lookup
+                    # key, not something a reader can act on. Shown right
+                    # next to the human-readable value it resolves (already
+                    # legible on its own, whether that's an alias or plain
+                    # text), it's redundant more often than not; drop it
+                    # whenever that companion value is actually present.
+                    if field.endswith("_eid") and fields.get(field[: -len("_eid")]) is not None:
                         continue
-                    field = k[len(prefix):] if k.startswith(prefix) else k
-                    lines.append(f"- {field}: {_format_field_value(v)}")
+                    lines.append(f"- {field}: {_format_field_value(value)}")
         return "\n".join(lines)

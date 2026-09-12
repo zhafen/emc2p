@@ -48,13 +48,13 @@ def test_write_accuracy_given_assignment(tmp_path):
 
     r = Registrar.load(f"duckdb:///{db_path}")
 
-    assert r.get_current_value("status", "value", "widget_a") == "active", (
+    assert r.view_current("status.value", "widget_a").to_scalar() == "active", (
         f"widget_a was told its status is active -- narration: {narration!r}"
     )
-    assert r.get_current_value("status", "value", "widget_b") == "idle", (
+    assert r.view_current("status.value", "widget_b").to_scalar() == "idle", (
         f"widget_b was told its status is idle -- narration: {narration!r}"
     )
-    assert r.get_current_value("status", "value", "widget_c") == "broken", (
+    assert r.view_current("status.value", "widget_c").to_scalar() == "broken", (
         f"widget_c was told its status is broken -- narration: {narration!r}"
     )
 

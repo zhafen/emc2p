@@ -41,6 +41,7 @@ mcp = [
 
 [project.scripts]
 emc2p-mcp = "emc2p.mcp_server:main"
+emc2p-render-trace = "emc2p.testing.render_trace:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

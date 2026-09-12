@@ -55,6 +55,7 @@ def create_agent_session(
     session_timeout: float = 120,
     provider_options: dict[str, Any] | None = None,
     max_tool_iterations: int | None = None,
+    strict_tool_isolation: bool = True,
 ) -> AgentSession:
     """Construct whichever session class `driver` names.
 
@@ -82,6 +83,12 @@ def create_agent_session(
             straight through to McpClientSession's own constructor) --
             ignored for "claude"/"copilot", whose HeadlessSession has no
             equivalent per-turn tool-call ceiling.
+        strict_tool_isolation: Only meaningful for "claude"/"copilot" (see
+            HeadlessSession's own docstring) -- ignored for "mcp_client",
+            which never has any built-in tools to strip in the first
+            place. Pass False when `allowed_tools` deliberately includes
+            a built-in tool (e.g. "Task") that a stripped tool set would
+            otherwise remove regardless of `allowed_tools` naming it.
 
     Returns:
         A HeadlessSession or McpClientSession -- either way, something
@@ -96,7 +103,12 @@ def create_agent_session(
         turn_timeout=turn_timeout, session_timeout=session_timeout,
     )
     if driver in ("claude", "copilot"):
-        return HeadlessSession(provider=driver, provider_options=provider_options, **common)
+        return HeadlessSession(
+            provider=driver,
+            provider_options=provider_options,
+            strict_tool_isolation=strict_tool_isolation,
+            **common,
+        )
     if driver == "mcp_client":
         if max_tool_iterations is not None:
             common["max_tool_iterations"] = max_tool_iterations

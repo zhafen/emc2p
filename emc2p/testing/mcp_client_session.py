@@ -174,7 +174,9 @@ class McpClientSession:
                 pytest.skip(f"{params.command!r} (MCP server {name!r}) not on PATH")
 
         self._session_deadline = time.monotonic() + self.session_timeout
-        self._trace_file = open(self.trace_path, "w")
+        # "a" not "w" -- see docs/manifest/history.yaml:
+        # project_history.trace_file_opened_in_append_mode.
+        self._trace_file = open(self.trace_path, "a")
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()

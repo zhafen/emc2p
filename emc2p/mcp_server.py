@@ -85,6 +85,7 @@ class RegistrarSessions:
     ):
         self._registrars: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._export_dirs: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+        self._trace_paths: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._time_provider = time_provider or (lambda registrar: None)
         self._export_dirname = export_dirname
         self._export_history_dirname = export_history_dirname
@@ -99,7 +100,13 @@ class RegistrarSessions:
             raise ValueError(f"No registry open for this session yet -- call {self._open_tool_name} first.")
         return self._registrars[session]
 
-    def set_registrar(self, session, registrar: Registrar, export_dir: str | Path | None = None) -> None:
+    def set_registrar(
+        self,
+        session,
+        registrar: Registrar,
+        export_dir: str | Path | None = None,
+        client_trace_path: str | Path | None = None,
+    ) -> None:
         """Register an already-loaded Registrar for `session` directly,
         bypassing `open`'s own manifest_dir-seeding logic.
 
@@ -108,10 +115,27 @@ class RegistrarSessions:
         instance -- e.g. a downstream project's own session-opening tool,
         whose load/seed logic doesn't match `open`'s simpler "merge
         manifest_dir once if empty" behavior.
+
+        `client_trace_path`, if given, is remembered for this session and
+        readable back via `get_trace_path` -- the plumbing
+        `single_shared_trace_file` needs so an in-process responder (e.g.
+        keyed_subagent) can append to the exact same trace_path the
+        connected client's own top-level session is already writing to,
+        instead of a separate file of its own.
         """
         self._registrars[session] = registrar
         if export_dir:
             self._export_dirs[session] = Path(export_dir)
+        if client_trace_path:
+            self._trace_paths[session] = Path(client_trace_path)
+
+    def get_trace_path(self, session) -> Path | None:
+        """Return the client-supplied trace_path recorded for `session` via
+        `set_registrar`, or None if none was ever given -- e.g. a session
+        opened without one, or a fresh subprocess after an idle-disconnect
+        reset (session-scoped state, not persisted -- see CLAUDE.md's
+        disconnect-recovery section)."""
+        return self._trace_paths.get(session)
 
     def open(
         self, session, database_url: str, manifest_dir: str | None = None, export_dir: str | None = None
@@ -143,7 +167,7 @@ class RegistrarSessions:
     def view_registry(self, session, component_type: str) -> str:
         """View all recorded data for one component type (e.g. "status", "object")."""
         registrar = self.get_registrar(session)
-        return registrar.view_df(component_type).fillna("null").to_markdown()
+        return registrar.view(component_type).to_pandas().fillna("null").to_markdown()
 
     def view_entity(self, session, entity_id: str) -> str:
         """Return every recorded component instance for a specific entity.
@@ -179,6 +203,11 @@ class RegistrarSessions:
         confirm_token: str | None = None,
     ) -> str:
         """Merge entity-first YAML into the registry, run through the same ETL as save files.
+
+        Each component needs a leading `- ` list item to attach to an
+        existing aliased entity, e.g. "widget_1:\n    - color:\n        value: blue".
+        A bare mapping (no leading `- `) is silently accepted but records
+        nothing at all.
 
         Default behavior (`preview` omitted/False, `confirm_token` omitted):
         `yaml_string` merges immediately. `preview=True` opts into a
@@ -384,7 +413,7 @@ def _component_write_summary(registrar: Registrar, component_type: str, limit: i
     shape/convention already in use for it.
     """
     try:
-        df = registrar.view_df(component_type)
+        df = registrar.view(component_type).to_pandas()
     except KeyError:
         return f"- {component_type}: declared, but no data written yet."
     if df.empty:
