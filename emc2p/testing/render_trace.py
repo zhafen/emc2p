@@ -3,9 +3,12 @@ session writes) into a readable, self-contained HTML report: one entry
 per turn, tool calls paired with their results, errors flagged.
 
 Normalizes the two trace shapes session drivers write into one common
-`Turn` sequence before rendering:
+`Turn` sequence before rendering, detected per event rather than once
+for the whole file (see `parse_trace`'s own docstring for why a single
+file can mix both):
 
-- `mcp_client_session.py`'s flat format (`driver="mcp_client"`).
+- `mcp_client_session.py`'s flat format (`driver="mcp_client"`, and any
+  nested in-process call sharing a `trace_path` via `run_tool_calling_loop`).
 - The raw Anthropic Messages `stream-json` protocol `headless_session.py`
   passes through verbatim (`driver="claude"`/`"copilot"`) -- a `tool_use`
   block's result arrives in a *later* event, correlated by `tool_use_id`.
@@ -59,8 +62,14 @@ class Turn:
 def parse_trace(path: Path) -> list[Turn]:
     """Read a trace file and return its turns, oldest first.
 
-    Detects which of the two shapes (see module docstring) the file
-    uses; an unparseable line is skipped, not fatal.
+    Detected per event, not once for the whole file: a nested in-process
+    call (e.g. a keyed_subagent-style responder's own
+    `run_tool_calling_loop`) writes `mcp_client_session.py`'s flat
+    "simple format" via its own `trace_path` even when the surrounding
+    session is itself real Anthropic stream-json (`driver="claude"`/
+    `"copilot"`) -- see `single_shared_trace_file` -- so one file can
+    genuinely mix both shapes, not just be one or the other. An
+    unparseable line is skipped, not fatal.
     """
     lines = [line for line in path.read_text().splitlines() if line.strip()]
     events: list[dict[str, Any]] = []
@@ -69,40 +78,46 @@ def parse_trace(path: Path) -> list[Turn]:
             events.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-    if any("message" in e and isinstance(e.get("message"), dict) for e in events):
-        return _normalize_anthropic_stream(events)
-    return _normalize_simple_format(events)
+    return _normalize_events(events)
 
 
-def _normalize_simple_format(events: list[dict[str, Any]]) -> list[Turn]:
-    """`mcp_client_session.py`'s own flat format."""
-    turns: list[Turn] = []
-    for event in events:
-        kind = event.get("type")
-        if kind == "user":
-            turns.append(Turn(kind="user", text=event.get("content") or ""))
-        elif kind == "assistant":
-            tool_calls = []
-            for tc in event.get("tool_calls") or []:
-                args = _try_parse_json(tc.get("arguments", "")) or tc.get("arguments", "")
-                tool_calls.append(ToolCall(name=tc.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
-            turns.append(Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls))
-        elif kind == "tool_result":
-            turns.append(
-                Turn(
-                    kind="tool_result",
-                    text=str(event.get("content", "")),
-                    tool_name=event.get("name", ""),
-                    is_error=bool(event.get("is_error")),
-                )
-            )
-    return turns
+def _is_simple_format_event(event: dict[str, Any]) -> bool:
+    """True for `mcp_client_session.py`'s own flat shape, false for a raw
+    Anthropic stream-json event -- the two are told apart by whether
+    "message" is present as a dict, the one field the flat format never has.
+    """
+    return event.get("type") in ("user", "assistant", "tool_result") and not isinstance(
+        event.get("message"), dict
+    )
 
 
-def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
-    """The raw Anthropic Messages `stream-json` protocol.
+def _simple_format_turn(event: dict[str, Any]) -> Turn | None:
+    """One `mcp_client_session.py`-shaped event -> `Turn`, or None for an
+    unrecognized `type` (mirrors `_normalize_events`'s own anthropic-side
+    tolerance of events it doesn't handle)."""
+    kind = event.get("type")
+    if kind == "user":
+        return Turn(kind="user", text=event.get("content") or "")
+    if kind == "assistant":
+        tool_calls = []
+        for tc in event.get("tool_calls") or []:
+            args = _try_parse_json(tc.get("arguments", "")) or tc.get("arguments", "")
+            tool_calls.append(ToolCall(name=tc.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
+        return Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls)
+    if kind == "tool_result":
+        return Turn(
+            kind="tool_result",
+            text=str(event.get("content", "")),
+            tool_name=event.get("name", ""),
+            is_error=bool(event.get("is_error")),
+        )
+    return None
 
-    `tool_names` maps `tool_use` id to name, since the later
+
+def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
+    """Turn a possibly-mixed event stream into `Turn`s, oldest first.
+
+    `tool_names` maps `tool_use` id to name, since a stream-json
     `tool_result` block only carries the id. `tool_calls_by_id` maps that
     same id to the actual `ToolCall` object built for it, so a later
     `task_notification` event (see `_attach_subagent_subtrace`) can attach
@@ -112,6 +127,11 @@ def _normalize_anthropic_stream(events: list[dict[str, Any]]) -> list[Turn]:
     tool_names: dict[str, str] = {}
     tool_calls_by_id: dict[str, ToolCall] = {}
     for event in events:
+        if _is_simple_format_event(event):
+            turn = _simple_format_turn(event)
+            if turn is not None:
+                turns.append(turn)
+            continue
         etype = event.get("type")
         if etype == "result":
             turns.append(Turn(kind="final", text=str(event.get("result", ""))))
@@ -189,7 +209,7 @@ def _attach_subagent_subtrace(event: dict[str, Any], tool_calls_by_id: dict[str,
             sub_events.append(json.loads(line))
         except json.JSONDecodeError:
             continue
-    tool_call.subtrace = _normalize_anthropic_stream(sub_events)
+    tool_call.subtrace = _normalize_events(sub_events)
 
 
 def _try_parse_json(value: Any) -> Any:

@@ -121,6 +121,36 @@ class TestParseAnthropicFormat:
         assert result_turn.text == "done"
 
 
+class TestParseMixedFormat:
+    """A nested in-process call (e.g. a keyed_subagent-style responder's
+    own run_tool_calling_loop) writes the simple format via its own
+    trace_path even when the surrounding session is real Anthropic
+    stream-json (single_shared_trace_file) -- so one file can genuinely
+    mix both shapes. Regression for the bug this exposed: parse_trace
+    used to pick ONE format for the whole file (whichever the first
+    matching event implied), silently dropping every event in the other
+    shape.
+    """
+
+    def test_simple_format_event_survives_inside_a_stream_json_file(self, tmp_path: Path):
+        mixed = "\n".join(
+            [
+                _ANTHROPIC_TRACE.splitlines()[1],  # the stream-json assistant/tool_use event
+                json.dumps({"type": "assistant", "content": "nested call", "tool_calls": []}),
+                json.dumps({"type": "tool_result", "name": "record_note", "is_error": False, "content": "ok"}),
+                _ANTHROPIC_TRACE.splitlines()[2],  # the stream-json tool_result event
+            ]
+        )
+        turns = parse_trace(_write(tmp_path, mixed))
+        assert [t.kind for t in turns] == ["assistant", "assistant", "tool_result", "tool_result"]
+        assert turns[1].text == "nested call"
+        assert turns[2].tool_name == "record_note"
+        # The stream-json tool_result must still resolve correctly too --
+        # confirms the mix doesn't corrupt the anthropic side's own
+        # tool_use_id -> name correlation.
+        assert turns[3].tool_name == "do_thing"
+
+
 class TestBase64PayloadDecoding:
     def test_a_base64_json_argument_is_decoded_and_surfaced(self, tmp_path: Path):
         token = base64.urlsafe_b64encode(json.dumps({"alias": "x", "answers": ["did the thing"]}).encode()).decode()

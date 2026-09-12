@@ -580,3 +580,76 @@ project_history:
               classmethod -- a genuinely backend-agnostic Registry would
               need that workaround re-examined too, left as-is here since
               it wasn't part of what was actually asked.
+    trace_file_opened_in_append_mode:
+        - description: >
+              McpClientSession/HeadlessSession each opened trace_path once
+              with open(path, "w") and held that handle open for the whole
+              session. A nested in-process responder (e.g. a downstream
+              project's keyed_subagent) can append to that same path from
+              a different OS process via run_tool_calling_loop's own
+              trace_path (open-append-close per event, already correct).
+              A "w"-mode handle's write position tracks independently of
+              the file's actual growth, so the outer handle's next write
+              would silently clobber whatever the nested process had just
+              appended. Found via story-simulator's own driver/responder
+              coverage matrix: a live trial showed the nested call's own
+              tool activity in the raw trace file, then nothing after the
+              outer handle's next write. Switched both to open(path, "a")
+              -- trace_path is always a freshly-generated, timestamp+uuid
+              name (never pre-existing), so append mode changes nothing
+              about starting empty; it just makes every write from that
+              handle POSIX-guaranteed to land at the current end of file
+              regardless of what else grew it in the meantime.
+    trace_convergence_test_moved_from_a_downstream_project:
+        - description: >
+              tests/testing/test_trace_convergence.py started life in a
+              downstream project's own test suite, parametrized to a
+              single driver, after that project's optional
+              client_trace_path passthrough on one of its own MCP tools
+              shipped fully unit-tested at the Python level but never
+              actually converged live: nothing in that project's own
+              driving instructions ever told the connected model to
+              supply the value, so the feature sat unused through an
+              entire live-test suite -- see
+              trace_file_opened_in_append_mode above for the deeper
+              cross-process bug that same investigation also turned up.
+              Moved here and generalized (a minimal test-only MCP server,
+              tests/live_fixtures/minimal_test_mcp_server.py, replacing
+              that project's own tool) once it was clear the concern --
+              does a nested run_tool_calling_loop call's own trace
+              converge with the outer session's, for a given driver --
+              had nothing to do with that project's own tool names or
+              domain, and parametrized across every AgentSession driver
+              instead of just the one that project's tests happened to run.
+    trace_convergence_matrix_generalized_to_every_responder_pattern:
+        - description: >
+              A downstream project's judgment-resolution logic (see that
+              project's own tests/test_native_subagent_sidechain.py,
+              which first confirmed a native subagent's own turns are
+              reachable via a task_notification event's output_file)
+              dispatches
+              on a "responder" value -- "host" (the connected model
+              decides inline), "subagent" (delegates to the connected
+              client's own isolated subagent mechanism), "keyed_subagent"
+              (this process answers it directly, in-process) -- and that
+              same three-way split turned out to have nothing to do with
+              that project's own domain either: minimal_test_mcp_server.py's
+              `resolve` tool implements all three generically, and
+              test_trace_convergence.py exercises every responder that
+              driver has, not just keyed_subagent.
+              Two things only surfaced once "subagent" was actually driven
+              live, neither obvious from reading resolve.py's own
+              docstring alone: (1) HeadlessSession's strict_tool_isolation
+              default (True) passes the provider CLI `--tools ""`, which
+              strips its native subagent-spawning tool along with every
+              other built-in -- naming it in allowed_tools alone doesn't
+              restore it, since that flag only gates permission to a tool
+              that still has to exist first; create_agent_session needed
+              an explicit strict_tool_isolation passthrough to opt back
+              in for this one test. (2) a real subagent's own tool calls
+              are namespaced MCP tool names like any other
+              ("mcp__minimal-test-server__record_note"), not the bare
+              tool-spec name keyed_subagent's in-process
+              run_tool_calling_loop call uses ("record_note") -- a trace
+              search matching by equality missed the subagent case
+              entirely; matching by suffix covers both.
