@@ -184,6 +184,27 @@ class TestTracePath:
         )
         assert list(tmp_path.iterdir()) == []
 
+    def test_prompt_itself_is_recorded_as_a_leading_user_event(self, monkeypatch, tmp_path):
+        """The prompt is what actually framed everything this call went
+        on to do -- without it recorded, a reader has no way to see what
+        this call was asked to do short of hunting it down elsewhere
+        (e.g. a caller's own separate diagnostic log, if it has one)."""
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "car_b_drive's end_time has been reached -- decide what happens.",
+                model="test-model",
+                dispatch=lambda n, a: "x",
+                trace_path=trace_path,
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert turns[0].kind == "user"
+        assert turns[0].text == "car_b_drive's end_time has been reached -- decide what happens."
+
     def test_tool_call_and_result_are_recorded_and_parseable(self, monkeypatch, tmp_path):
         tool_call = _FakeToolCall("call_1", "view_entity", {"entity_id": "car_a"})
         _queue_responses(
@@ -207,12 +228,100 @@ class TestTracePath:
         assert result == "parked, per view_entity."
         assert trace_path.exists()
         turns = parse_trace(trace_path)
-        assert [t.kind for t in turns] == ["assistant", "tool_result", "assistant"]
-        assert turns[0].tool_calls == [ToolCall(name="view_entity", arguments={"entity_id": "car_a"}, decoded=[])]
-        assert turns[1].tool_name == "view_entity"
-        assert turns[1].text == "car_a: position=driveway"
-        assert turns[1].is_error is False
-        assert turns[2].text == "parked, per view_entity."
+        assert [t.kind for t in turns] == ["user", "assistant", "tool_result", "assistant"]
+        assert turns[0].text == "what happened?"
+        assert turns[1].tool_calls == [ToolCall(name="view_entity", arguments={"entity_id": "car_a"}, decoded=[])]
+        assert turns[2].tool_name == "view_entity"
+        assert turns[2].text == "car_a: position=driveway"
+        assert turns[2].is_error is False
+        assert turns[3].text == "parked, per view_entity."
+
+    def test_trace_actor_is_stamped_on_every_event_when_given(self, monkeypatch, tmp_path):
+        """A caller identifying itself via `trace_actor` (e.g. a
+        keyed_subagent responder sharing its parent's own trace_path) gets
+        that label on every event it writes, so a reader doesn't have to
+        infer who produced a step from tool-name conventions."""
+        tool_call = _FakeToolCall("call_1", "view_entity", {"entity_id": "car_a"})
+        _queue_responses(
+            monkeypatch,
+            [
+                _FakeResponse(_FakeMessage(tool_calls=[tool_call])),
+                _FakeResponse(_FakeMessage(content="parked, per view_entity.")),
+            ],
+        )
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?",
+                model="test-model",
+                dispatch=lambda name, arguments: "car_a: position=driveway",
+                trace_path=trace_path,
+                trace_actor="keyed_subagent",
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert [t.kind for t in turns] == ["user", "assistant", "tool_result", "assistant"]
+        assert [t.actor for t in turns] == ["keyed_subagent"] * 4
+
+    def test_trace_actor_omitted_by_default(self, monkeypatch, tmp_path):
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?", model="test-model", dispatch=lambda n, a: "x", trace_path=trace_path
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert all(t.actor == "" for t in turns)
+        assert "actor" not in json.loads(trace_path.read_text().splitlines()[0])
+
+    def test_trace_origin_is_stamped_on_every_event_when_given(self, monkeypatch, tmp_path):
+        """A caller-supplied `trace_origin` (e.g. which of a project's
+        several call sites constructed this prompt) gets recorded on
+        every event, distinct from `trace_actor` (who is answering)."""
+        tool_call = _FakeToolCall("call_1", "view_entity", {"entity_id": "car_a"})
+        _queue_responses(
+            monkeypatch,
+            [
+                _FakeResponse(_FakeMessage(tool_calls=[tool_call])),
+                _FakeResponse(_FakeMessage(content="parked, per view_entity.")),
+            ],
+        )
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "car_b_drive's end_time has been reached -- decide what happens.",
+                model="test-model",
+                dispatch=lambda name, arguments: "car_a: position=driveway",
+                trace_path=trace_path,
+                trace_actor="keyed_subagent",
+                trace_origin="resolve_event",
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert [t.kind for t in turns] == ["user", "assistant", "tool_result", "assistant"]
+        assert [t.actor for t in turns] == ["keyed_subagent"] * 4
+        assert [t.origin for t in turns] == ["resolve_event"] * 4
+
+    def test_trace_origin_omitted_by_default(self, monkeypatch, tmp_path):
+        _queue_responses(monkeypatch, [_FakeResponse(_FakeMessage(content="done."))])
+        trace_path = tmp_path / "subagent_trace.jsonl"
+
+        asyncio.run(
+            run_tool_calling_loop(
+                "what happened?", model="test-model", dispatch=lambda n, a: "x", trace_path=trace_path
+            )
+        )
+
+        turns = parse_trace(trace_path)
+        assert all(t.origin == "" for t in turns)
+        assert "origin" not in json.loads(trace_path.read_text().splitlines()[0])
 
     def test_dispatch_error_recorded_as_an_error_tool_result(self, monkeypatch, tmp_path):
         tool_call = _FakeToolCall("call_1", "update_registry", {"yaml_string": "bad"})
@@ -255,5 +364,6 @@ class TestTracePath:
         )
 
         turns = parse_trace(trace_path)
-        assert [t.kind for t in turns] == ["user", "assistant"]
+        assert [t.kind for t in turns] == ["user", "user", "assistant"]
         assert turns[0].text == "earlier turn"
+        assert turns[1].text == "what happened?"

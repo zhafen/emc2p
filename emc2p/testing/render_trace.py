@@ -31,7 +31,7 @@ import html
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 @dataclasses.dataclass
@@ -54,6 +54,21 @@ class Turn:
     tool_calls: list[ToolCall] = dataclasses.field(default_factory=list)
     tool_name: str = ""
     is_error: bool = False
+    # Who produced this turn, e.g. "keyed_subagent" -- set only when the
+    # writer (see `run_tool_calling_loop`'s own `trace_actor`) stamped an
+    # explicit "actor" key on the event; "" for an ordinary top-level
+    # session turn or an older trace written before this field existed.
+    # Deliberately not inferred from tool-name conventions (an MCP
+    # dispatch prefix versus a bare name) -- that was a reader-side guess,
+    # not something the trace itself stated.
+    actor: str = ""
+    # *Why* this turn happened, e.g. "resolve_event" vs. "plan_events" --
+    # a caller-supplied label for which of possibly several call sites
+    # produced the prompt this turn is answering (see `run_tool_calling_loop`'s
+    # own `trace_origin`). Distinct from `actor` (who is answering):
+    # a single actor can serve requests from several different origins.
+    # "" when the writer didn't stamp one.
+    origin: str = ""
 
 
 # ─── Parsing ──────────────────────────────────────────────────────────
@@ -81,6 +96,24 @@ def parse_trace(path: Path) -> list[Turn]:
     return _normalize_events(events)
 
 
+def iter_tool_calls(turns: list[Turn]) -> Iterator[ToolCall]:
+    """Yield every `ToolCall` in `turns`, recursing into each one's own
+    `subtrace` (a native subagent's own turns, or an actor like
+    keyed_subagent sharing this trace_path -- see `Turn.actor`/`origin`).
+
+    A caller checking "did tool X get called anywhere in this trace"
+    needs this, not `[tc for t in turns for tc in t.tool_calls]`: that
+    flat form only sees a top-level call's own immediate tool_calls,
+    silently missing anything nested one level down inside a subtrace --
+    exactly where a keyed_subagent-style responder's own calls live.
+    """
+    for turn in turns:
+        for tc in turn.tool_calls:
+            yield tc
+            if tc.subtrace:
+                yield from iter_tool_calls(tc.subtrace)
+
+
 def _is_simple_format_event(event: dict[str, Any]) -> bool:
     """True for `mcp_client_session.py`'s own flat shape, false for a raw
     Anthropic stream-json event -- the two are told apart by whether
@@ -96,20 +129,26 @@ def _simple_format_turn(event: dict[str, Any]) -> Turn | None:
     unrecognized `type` (mirrors `_normalize_events`'s own anthropic-side
     tolerance of events it doesn't handle)."""
     kind = event.get("type")
+    actor = event.get("actor") or ""
+    origin = event.get("origin") or ""
     if kind == "user":
-        return Turn(kind="user", text=event.get("content") or "")
+        return Turn(kind="user", text=event.get("content") or "", actor=actor, origin=origin)
     if kind == "assistant":
         tool_calls = []
         for tc in event.get("tool_calls") or []:
             args = _try_parse_json(tc.get("arguments", "")) or tc.get("arguments", "")
             tool_calls.append(ToolCall(name=tc.get("name", ""), arguments=args, decoded=_decode_blobs(args)))
-        return Turn(kind="assistant", text=event.get("content") or "", tool_calls=tool_calls)
+        return Turn(
+            kind="assistant", text=event.get("content") or "", tool_calls=tool_calls, actor=actor, origin=origin
+        )
     if kind == "tool_result":
         return Turn(
             kind="tool_result",
             text=str(event.get("content", "")),
             tool_name=event.get("name", ""),
             is_error=bool(event.get("is_error")),
+            actor=actor,
+            origin=origin,
         )
     return None
 
@@ -122,19 +161,67 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
     same id to the actual `ToolCall` object built for it, so a later
     `task_notification` event (see `_attach_subagent_subtrace`) can attach
     a native subagent's own turns directly onto it.
+
+    A writer sharing this trace_path from *inside* an outer tool call --
+    e.g. keyed_subagent's own nested `run_tool_calling_loop`, dispatched
+    while the outer `advance_simulation` call is still awaiting its own
+    result -- interleaves its "actor"-stamped events into this same flat
+    file, in between that outer call and its eventual result (the outer
+    dispatch doesn't return, and so can't write its own result event,
+    until the nested call finishes). Left flat, a reader sees the outer
+    call followed immediately by a long, unrelated exchange and no result
+    in sight, which reads as the result having gone missing rather than
+    just being much further down. `emit` buffers a contiguous run of
+    actor-stamped turns and, once the file returns to unstamped ("host")
+    events, attaches them as `subtrace` on whichever host ToolCall was
+    still awaiting its result when the run began -- tracked via
+    `pending_tool_calls`, a FIFO queue of not-yet-resulted host
+    ToolCalls (safe because a dispatch loop always awaits one tool's
+    result before issuing the next, so at most the head of this queue is
+    ever actually in flight). This gives an actor's nested exchange the
+    same "subagent trace" nesting `_attach_subagent_subtrace` already
+    gives a native subagent's own turns, so the outer call's result
+    renders right after its call either way.
     """
     turns: list[Turn] = []
     tool_names: dict[str, str] = {}
     tool_calls_by_id: dict[str, ToolCall] = {}
+    pending_tool_calls: list[ToolCall] = []
+    actor_buffer: list[Turn] = []
+
+    def flush_actor_buffer() -> None:
+        # No host ToolCall was actually awaiting this run (e.g. a trace
+        # that's nothing but a nested exchange, no outer call at all) --
+        # fall back to surfacing the turns directly rather than silently
+        # dropping them.
+        nonlocal actor_buffer
+        if not actor_buffer:
+            return
+        if pending_tool_calls:
+            pending_tool_calls[0].subtrace = actor_buffer
+        else:
+            turns.extend(actor_buffer)
+        actor_buffer = []
+
+    def emit(turn: Turn) -> None:
+        if turn.actor:
+            actor_buffer.append(turn)
+            return
+        flush_actor_buffer()
+        turns.append(turn)
+        pending_tool_calls.extend(turn.tool_calls)
+        if turn.kind == "tool_result" and pending_tool_calls:
+            pending_tool_calls.pop(0)
+
     for event in events:
         if _is_simple_format_event(event):
             turn = _simple_format_turn(event)
             if turn is not None:
-                turns.append(turn)
+                emit(turn)
             continue
         etype = event.get("type")
         if etype == "result":
-            turns.append(Turn(kind="final", text=str(event.get("result", ""))))
+            emit(Turn(kind="final", text=str(event.get("result", ""))))
             continue
         if etype == "system" and event.get("subtype") == "task_notification":
             _attach_subagent_subtrace(event, tool_calls_by_id)
@@ -156,7 +243,7 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                 tool_call = ToolCall(name=b.get("name", ""), arguments=args, decoded=_decode_blobs(args))
                 tool_calls_by_id[tool_use_id] = tool_call
                 tool_calls.append(tool_call)
-            turns.append(Turn(kind="assistant", text="\n".join(p for p in text_parts if p), tool_calls=tool_calls))
+            emit(Turn(kind="assistant", text="\n".join(p for p in text_parts if p), tool_calls=tool_calls))
         elif etype == "user":
             for b in blocks:
                 if b.get("type") == "tool_result":
@@ -167,7 +254,7 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                         )
                     else:
                         result_text = str(result_content or "")
-                    turns.append(
+                    emit(
                         Turn(
                             kind="tool_result",
                             text=result_text,
@@ -176,7 +263,11 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[Turn]:
                         )
                     )
                 elif b.get("type") == "text" and b.get("text"):
-                    turns.append(Turn(kind="user", text=b["text"]))
+                    emit(Turn(kind="user", text=b["text"]))
+    # The file can end mid-nested-run (e.g. a trace captured while its
+    # session was still live) -- flush whatever's left rather than
+    # dropping it.
+    flush_actor_buffer()
     return turns
 
 
@@ -280,9 +371,24 @@ def _render_tool_call(tc: ToolCall) -> str:
             f'<div class="blob-content">{_render_decoded_value(decoded)}</div></details>'
         )
     if tc.subtrace:
+        # A native subagent's own turns (attached by
+        # _attach_subagent_subtrace) never carry an actor -- only a
+        # nested in-process call sharing this trace_path (e.g.
+        # keyed_subagent) does -- so use its name here when there is one,
+        # falling back to the generic label otherwise.
+        actors = {t.actor for t in tc.subtrace if t.actor}
+        origins = {t.origin for t in tc.subtrace if t.origin}
+        actor_label = next(iter(actors)) if len(actors) == 1 else "subagent"
+        label = f"{actor_label} ({next(iter(origins))}) trace" if len(origins) == 1 else f"{actor_label} trace"
+        # Open by default, unlike "arguments"/"decoded payload" above --
+        # a nested exchange (a native subagent's own turns, or an actor
+        # like keyed_subagent sharing this trace_path) is usually the
+        # actual substance of what happened during this call, not
+        # optional inspection detail. Collapsed, it reads as if nothing
+        # happened between the call and its result.
         parts.append(
-            '<details class="blob"><summary>subagent trace</summary>'
-            f'<div class="blob-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
+            f'<details class="blob" open><summary>{_esc(label)}</summary>'
+            f'<div class="blob-content subtrace-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
         )
     parts.append("</div>")
     return "".join(parts)
@@ -297,6 +403,8 @@ def _render_steps(turns: list[Turn]) -> str:
         kind_label = _STEP_LABELS.get(turn.kind, turn.kind)
         body = [f'<div class="step-kind">{_esc(kind_label)}'
                 + (f' · <span class="tool-name">{_esc(turn.tool_name)}</span>' if turn.tool_name else "")
+                + (f' <span class="actor-tag">{_esc(turn.actor)}</span>' if turn.actor else "")
+                + (f' <span class="origin-tag">{_esc(turn.origin)}</span>' if turn.origin else "")
                 + "</div>"]
         if turn.text:
             body.append(f'<div class="step-text">{_esc(turn.text)}</div>')
@@ -309,7 +417,7 @@ def _render_steps(turns: list[Turn]) -> str:
     return "".join(step_html)
 
 
-def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
+def render_html(turns: list[Turn], *, title: str, source_label: str, driver: str | None = None) -> str:
     n_errors = sum(1 for t in turns if t.kind == "tool_result" and t.is_error)
     n_tool_calls = sum(len(t.tool_calls) for t in turns)
 
@@ -323,6 +431,7 @@ def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
     <div class="eyebrow">rendered live-test trace</div>
     <h1>{_esc(title)}</h1>
     <div class="meta-row">
+      {f'<span class="pill">driver: {_esc(driver)}</span>' if driver else ''}
       <span class="pill mono-pill">{_esc(source_label)}</span>
       <span class="pill">{len(turns)} entries</span>
       <span class="pill">{n_tool_calls} tool calls</span>
@@ -377,6 +486,8 @@ h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 0; text
 .step-body { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .step-kind { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
 .step-kind .tool-name { text-transform: none; letter-spacing: 0; }
+.actor-tag { display: inline-block; text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--accent); }
+.origin-tag { display: inline-block; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; background: transparent; border: 1px dashed var(--border); color: var(--text-muted); }
 .tool-name { font-family: 'IBM Plex Mono', ui-monospace, monospace; color: var(--accent); }
 .step.err .tool-name { color: var(--err); }
 .step-text { font-size: 14.5px; white-space: pre-wrap; word-break: break-word; }
@@ -388,6 +499,11 @@ details.blob > summary::-webkit-details-marker { display: none; }
 details.blob > summary::before { content: "▸ "; }
 details.blob[open] > summary::before { content: "▾ "; }
 .blob-content { padding: 0 14px 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; color: var(--text); max-height: 340px; overflow-y: auto; }
+/* A nested exchange (subagent/keyed_subagent) can run to hundreds of
+   turns -- arguments/decoded-payload blobs above stay compact, but this
+   one gets a much taller scrolling window so a reader can actually
+   browse it instead of scrolling a few lines at a time. */
+.blob-content.subtrace-content { max-height: 1400px; font-size: 13.5px; }
 .blob-content pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .blob-content p { margin: 0 0 .8em; font-family: 'Manrope', sans-serif; white-space: pre-wrap; }
 .blob-content p:last-child { margin-bottom: 0; }
@@ -399,11 +515,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("trace_path", type=Path, help="Path to the .jsonl trace file.")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Write HTML here instead of stdout.")
     parser.add_argument("--title", default=None, help="Report title (default: the trace file's own name).")
+    parser.add_argument(
+        "--driver",
+        default=None,
+        help="The outer session's driver (e.g. 'mcp_client', 'claude', 'copilot') -- "
+        "not recoverable from the trace file's own content, so the caller supplies it.",
+    )
     args = parser.parse_args(argv)
 
     turns = parse_trace(args.trace_path)
     title = args.title or args.trace_path.stem
-    output = render_html(turns, title=title, source_label=str(args.trace_path))
+    output = render_html(turns, title=title, source_label=str(args.trace_path), driver=args.driver)
 
     if args.output:
         args.output.write_text(output)
