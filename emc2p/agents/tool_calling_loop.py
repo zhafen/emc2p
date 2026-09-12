@@ -159,7 +159,21 @@ async def run_tool_calling_loop(
     prefix versus a bare name) -- see `render_trace`'s own Turn.actor.
     None (the default) omits the key entirely, matching a top-level
     session's own unlabeled events.
+
+    `prompt` itself is written to `trace_path` too, as a leading "user"
+    event -- matching a top-level session's own convention
+    (`mcp_client_session.py` writes its turn's prompt the same way) --
+    since it's what actually framed everything this call went on to do,
+    not just incidental setup. Without it, a reader has no way to see
+    what this call was actually asked to do short of separately hunting
+    it down (e.g. story-simulator's own diagnostic
+    `.write_call_trace.jsonl`, which each caller may or may not have).
     """
+    if trace_path is not None:
+        event: dict[str, Any] = {"type": "user", "content": prompt}
+        if trace_actor is not None:
+            event["actor"] = trace_actor
+        _append_trace_event(trace_path, event)
     messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(model=model, messages=messages, tools=tools)
     _log_usage(response, usage_log_path)

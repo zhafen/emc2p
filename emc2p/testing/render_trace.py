@@ -385,7 +385,7 @@ def _render_steps(turns: list[Turn]) -> str:
     return "".join(step_html)
 
 
-def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
+def render_html(turns: list[Turn], *, title: str, source_label: str, driver: str | None = None) -> str:
     n_errors = sum(1 for t in turns if t.kind == "tool_result" and t.is_error)
     n_tool_calls = sum(len(t.tool_calls) for t in turns)
 
@@ -399,6 +399,7 @@ def render_html(turns: list[Turn], *, title: str, source_label: str) -> str:
     <div class="eyebrow">rendered live-test trace</div>
     <h1>{_esc(title)}</h1>
     <div class="meta-row">
+      {f'<span class="pill">driver: {_esc(driver)}</span>' if driver else ''}
       <span class="pill mono-pill">{_esc(source_label)}</span>
       <span class="pill">{len(turns)} entries</span>
       <span class="pill">{n_tool_calls} tool calls</span>
@@ -476,11 +477,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("trace_path", type=Path, help="Path to the .jsonl trace file.")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Write HTML here instead of stdout.")
     parser.add_argument("--title", default=None, help="Report title (default: the trace file's own name).")
+    parser.add_argument(
+        "--driver",
+        default=None,
+        help="The outer session's driver (e.g. 'mcp_client', 'claude', 'copilot') -- "
+        "not recoverable from the trace file's own content, so the caller supplies it.",
+    )
     args = parser.parse_args(argv)
 
     turns = parse_trace(args.trace_path)
     title = args.title or args.trace_path.stem
-    output = render_html(turns, title=title, source_label=str(args.trace_path))
+    output = render_html(turns, title=title, source_label=str(args.trace_path), driver=args.driver)
 
     if args.output:
         args.output.write_text(output)

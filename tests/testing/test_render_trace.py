@@ -502,3 +502,17 @@ class TestRenderHtml:
         output = render_html(turns, title="t", source_label="s")
         assert "<script>alert(1)</script>" not in output
         assert "&lt;script&gt;" in output
+
+    def test_driver_shown_in_header_when_given(self, tmp_path: Path):
+        """Not recoverable from the trace file's own content (an
+        mcp_client outer session and a claude/copilot one write
+        distinguishable shapes, but claude vs. copilot don't), so the
+        caller supplies it and it's just displayed, not inferred."""
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        output = render_html(turns, title="t", source_label="s", driver="mcp_client")
+        assert "driver: mcp_client" in output
+
+    def test_no_driver_pill_when_omitted(self, tmp_path: Path):
+        turns = parse_trace(_write(tmp_path, _SIMPLE_TRACE))
+        output = render_html(turns, title="t", source_label="s")
+        assert "driver:" not in output
