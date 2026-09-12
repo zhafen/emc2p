@@ -349,8 +349,14 @@ def _render_tool_call(tc: ToolCall) -> str:
         # falling back to the generic label otherwise.
         actors = {t.actor for t in tc.subtrace if t.actor}
         label = f"{next(iter(actors))} trace" if len(actors) == 1 else "subagent trace"
+        # Open by default, unlike "arguments"/"decoded payload" above --
+        # a nested exchange (a native subagent's own turns, or an actor
+        # like keyed_subagent sharing this trace_path) is usually the
+        # actual substance of what happened during this call, not
+        # optional inspection detail. Collapsed, it reads as if nothing
+        # happened between the call and its result.
         parts.append(
-            f'<details class="blob"><summary>{_esc(label)}</summary>'
+            f'<details class="blob" open><summary>{_esc(label)}</summary>'
             f'<div class="blob-content"><ol class="timeline">{_render_steps(tc.subtrace)}</ol></div></details>'
         )
     parts.append("</div>")

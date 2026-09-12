@@ -471,6 +471,15 @@ class TestNativeSubagentSubtrace:
         assert "subagent trace" in output
         assert "391" in output
 
+    def test_nested_subtrace_block_is_open_by_default(self, tmp_path: Path):
+        """Collapsed by default, a nested exchange reads as if nothing
+        happened between the call and its result -- it should be visible
+        without a click, unlike the "arguments"/"decoded payload" blobs."""
+        output_path = self._write_output_file(tmp_path)
+        turns = parse_trace(_write(tmp_path, self._parent_trace(output_path)))
+        output = render_html(turns, title="t", source_label="s")
+        assert '<details class="blob" open><summary>subagent trace</summary>' in output
+
 
 class TestRenderHtml:
     def test_renders_without_error_and_includes_key_content(self, tmp_path: Path):
