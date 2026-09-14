@@ -1,0 +1,130 @@
+file_info:
+    - description: >
+          A "why chain" experiment: starting from one real method
+          (``McpClientSession.send_turn``, in
+          emc2p/testing/mcp_client_session.py), repeatedly ask "why does
+          this exist" and record the answer as a new entity pointing back
+          at the thing it explains via ((why)). Not itself a
+          requirement/solution manifest entry -- kept separate from
+          emc2p.yaml/history.yaml the same way those already separate
+          architecture notes from pure history.
+    - file_info
+
+why:
+    - description: >
+          A directed_relation from an entity that answers "why" (the
+          ((why)).source) back to the entity whose existence it explains
+          (the ((why)).value) -- the same source/value shape as
+          ((solution)), but for an open-ended rationale chain rather than
+          a formal requirement/solution pairing.
+    - parent: directed_relation
+    - field:
+          value:
+              description: The entity this why-answer explains.
+              type: entity_ref
+
+mcp_client_session_send_turn:
+    - description: >
+          ``McpClientSession.send_turn(prompt)`` in
+          emc2p/testing/mcp_client_session.py: sends one prompt on the
+          session's ongoing conversation and blocks (on the caller's
+          thread) until the model<->tool-call exchange for that turn
+          finishes, returning the final reply. Internally submits the
+          work to the session's single background asyncio task (via a
+          thread-safe queue + concurrent.futures.Future) so the real
+          `mcp.ClientSession` and `run_tool_calling_loop` machinery stay
+          on the one task that opened them, and appends every model
+          response and tool call/result to `self.trace_path` as it
+          happens.
+
+why_send_turn_exists:
+    - description: >
+          Because test code needs a plain, synchronous call that blocks
+          for one turn's full reply -- the same public shape as
+          `HeadlessSession.send_turn` -- while `McpClientSession` itself
+          drives the real MCP wire protocol and a litellm-based agent
+          loop underneath.
+    - why of: mcp_client_session_send_turn
+
+why_shape_mirrors_headless_session:
+    - description: >
+          Because `McpClientSession` is meant to be a drop-in replacement
+          wherever a downstream project's fixture already constructs a
+          `HeadlessSession` -- matching its public shape (context manager,
+          `send_turn`, `usage_summary`, `trace_path`,
+          `turn_timeout`/`session_timeout`) lets existing ordinary
+          (non-async) test code run unmodified against a different
+          backend.
+    - why of: why_send_turn_exists
+
+why_must_be_drop_in_replacement:
+    - description: >
+          Because a downstream project's own live-behavior test suites are
+          already numerous and written as ordinary sync pytest tests
+          against `HeadlessSession`; requiring them to go async, or
+          hand-rewriting each one, would mean maintaining two parallel
+          test surfaces for no benefit.
+    - why of: why_shape_mirrors_headless_session
+
+why_second_backend_needed:
+    - description: >
+          Because `HeadlessSession` drives the MCP server through a
+          *provider CLI* that already bundles its own MCP client and agent
+          loop, and not every litellm-supported model has one -- see
+          docs/manifest/history.yaml:
+          project_history.mcp_client_session_added (DeepSeek's own CLI,
+          `dsh`, is a week-old one-shot-only preview with no documented
+          streaming output or usage reporting, not a fit for
+          `HeadlessProvider`'s contract).
+    - why of: why_must_be_drop_in_replacement
+
+why_non_cli_models_must_be_live_tested:
+    - description: >
+          Because models without a bundled CLI are still real candidates
+          for driving a downstream project's own MCP-server-backed agent
+          (or being compared against ones that are), and a model that's
+          never been exercised through the actual MCP tool surface in a
+          live turn can't be trusted to behave correctly once it actually
+          is.
+    - why of: why_second_backend_needed
+
+why_real_wire_protocol_required:
+    - description: >
+          Because exercising the real `mcp.client.stdio`/`mcp.ClientSession`
+          wire protocol -- the actual tool schemas a connected client would
+          see -- rather than a hand-mirrored copy of them, is what makes
+          the live test trustworthy: a mismatch between the mock and the
+          real server would otherwise go undetected.
+    - why of: why_non_cli_models_must_be_live_tested
+
+why_mock_schemas_drift:
+    - description: >
+          Because a hand-mirrored copy of the tool schemas lives and
+          changes independently of the server's own code -- nothing forces
+          it to be updated in lockstep when the server's real tools
+          change, so it silently goes stale and a test built on it can
+          pass against behavior the deployed server no longer has.
+    - why of: why_real_wire_protocol_required
+
+why_no_schema_sync_mechanism:
+    - description: >
+          Because emc2p's testing framework is built around exercising
+          real, interpretable live behavior directly (see
+          `emc2p_testing_framework`/`interpretable_results` in
+          docs/manifest/emc2p.yaml) rather than building and maintaining a
+          separate mechanism to keep a synthetic mock schema in sync with
+          the real one -- testing the real thing sidesteps the sync
+          problem entirely instead of solving it.
+    - why of: why_mock_schemas_drift
+
+why_prioritize_live_over_synthetic:
+    - description: >
+          Because emc2p's own mission (`tool_for_data_driven_mcps` in
+          docs/manifest/emc2p.yaml) is to be a valuable tool for
+          data-driven MCPs, and an MCP server's value can only be
+          confirmed by how it actually behaves when a real client drives
+          it -- a synthetic mock only tests emc2p's own assumptions about
+          the server, not the server itself. This is the chain's
+          terminus: a foundational project goal, not itself something
+          with a further "why" behind it.
+    - why of: why_no_schema_sync_mechanism
