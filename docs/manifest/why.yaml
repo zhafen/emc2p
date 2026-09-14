@@ -2,12 +2,13 @@ file_info:
     - description: >
           A "why chain" experiment: starting from one real method
           (``McpClientSession.send_turn``, in
-          emc2p/testing/mcp_client_session.py), repeatedly ask "why does
-          this exist" and record the answer as a new entity pointing back
-          at the thing it explains via ((why)). Not itself a
-          requirement/solution manifest entry -- kept separate from
-          emc2p.yaml/history.yaml the same way those already separate
-          architecture notes from pure history.
+          emc2p/testing/mcp_client_session.py), repeatedly ask "why" and
+          record each answer as a new entity pointing back at the thing it
+          explains via ((why)), with the specific question it's answering
+          recorded on ((why)).question. Not itself a requirement/solution
+          manifest entry -- kept separate from emc2p.yaml/history.yaml the
+          same way those already separate architecture notes from pure
+          history.
     - file_info
 
 why:
@@ -22,6 +23,14 @@ why:
           value:
               description: The entity this why-answer explains.
               type: entity_ref
+          question:
+              description: >
+                  The particular "why" question this entity's description
+                  answers -- lets one target entity (or one answer further
+                  up a chain) be asked several distinct "why" questions,
+                  each starting its own chain, rather than assuming there's
+                  only one "why" to ask of it.
+              type: str
 
 mcp_client_session_send_turn:
     - description: >
@@ -37,6 +46,11 @@ mcp_client_session_send_turn:
           response and tool call/result to `self.trace_path` as it
           happens.
 
+# ---------------------------------------------------------------------------
+# Chain 1: why does send_turn exist at all (unchanged from the first
+# experiment, retrofitted with the new `question` field).
+# ---------------------------------------------------------------------------
+
 why_send_turn_exists:
     - description: >
           Because test code needs a plain, synchronous call that blocks
@@ -44,7 +58,9 @@ why_send_turn_exists:
           `HeadlessSession.send_turn` -- while `McpClientSession` itself
           drives the real MCP wire protocol and a litellm-based agent
           loop underneath.
-    - why of: mcp_client_session_send_turn
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why does `send_turn` exist as a method?
 
 why_shape_mirrors_headless_session:
     - description: >
@@ -55,7 +71,9 @@ why_shape_mirrors_headless_session:
           `turn_timeout`/`session_timeout`) lets existing ordinary
           (non-async) test code run unmodified against a different
           backend.
-    - why of: why_send_turn_exists
+    - why of:
+          value: why_send_turn_exists
+          question: Why does that call need to match `HeadlessSession.send_turn`'s own public shape?
 
 why_must_be_drop_in_replacement:
     - description: >
@@ -64,7 +82,9 @@ why_must_be_drop_in_replacement:
           against `HeadlessSession`; requiring them to go async, or
           hand-rewriting each one, would mean maintaining two parallel
           test surfaces for no benefit.
-    - why of: why_shape_mirrors_headless_session
+    - why of:
+          value: why_shape_mirrors_headless_session
+          question: Why does `McpClientSession` need to be a drop-in replacement rather than adapting callers to a new interface?
 
 why_second_backend_needed:
     - description: >
@@ -76,7 +96,9 @@ why_second_backend_needed:
           `dsh`, is a week-old one-shot-only preview with no documented
           streaming output or usage reporting, not a fit for
           `HeadlessProvider`'s contract).
-    - why of: why_must_be_drop_in_replacement
+    - why of:
+          value: why_must_be_drop_in_replacement
+          question: Why is a second backend needed at all, instead of only ever using `HeadlessSession`?
 
 why_non_cli_models_must_be_live_tested:
     - description: >
@@ -86,7 +108,9 @@ why_non_cli_models_must_be_live_tested:
           never been exercised through the actual MCP tool surface in a
           live turn can't be trusted to behave correctly once it actually
           is.
-    - why of: why_second_backend_needed
+    - why of:
+          value: why_second_backend_needed
+          question: Why must models without a bundled CLI still be run through the live-behavior test suites?
 
 why_real_wire_protocol_required:
     - description: >
@@ -95,7 +119,9 @@ why_real_wire_protocol_required:
           see -- rather than a hand-mirrored copy of them, is what makes
           the live test trustworthy: a mismatch between the mock and the
           real server would otherwise go undetected.
-    - why of: why_non_cli_models_must_be_live_tested
+    - why of:
+          value: why_non_cli_models_must_be_live_tested
+          question: Why must that live exercise go through the real MCP wire protocol rather than a hand-mirrored mock of the tool schemas?
 
 why_mock_schemas_drift:
     - description: >
@@ -104,7 +130,9 @@ why_mock_schemas_drift:
           it to be updated in lockstep when the server's real tools
           change, so it silently goes stale and a test built on it can
           pass against behavior the deployed server no longer has.
-    - why of: why_real_wire_protocol_required
+    - why of:
+          value: why_real_wire_protocol_required
+          question: Why would a hand-mirrored schema copy drift from the real one?
 
 why_no_schema_sync_mechanism:
     - description: >
@@ -115,7 +143,9 @@ why_no_schema_sync_mechanism:
           separate mechanism to keep a synthetic mock schema in sync with
           the real one -- testing the real thing sidesteps the sync
           problem entirely instead of solving it.
-    - why of: why_mock_schemas_drift
+    - why of:
+          value: why_mock_schemas_drift
+          question: Why does emc2p rely on live exercise instead of a mechanism that keeps a mock schema in sync automatically?
 
 why_prioritize_live_over_synthetic:
     - description: >
@@ -127,4 +157,366 @@ why_prioritize_live_over_synthetic:
           the server, not the server itself. This is the chain's
           terminus: a foundational project goal, not itself something
           with a further "why" behind it.
-    - why of: why_no_schema_sync_mechanism
+    - why of:
+          value: why_no_schema_sync_mechanism
+          question: Why does emc2p's testing framework prioritize real, interpretable live behavior over synthetic/mocked correctness?
+
+# ---------------------------------------------------------------------------
+# Chain 2: why is send_turn synchronous/blocking, given everything it does
+# underneath is async.
+# ---------------------------------------------------------------------------
+
+why_sync_call:
+    - description: >
+          Because it's meant to be called from ordinary sync pytest test
+          code (see `why_shape_mirrors_headless_session`) without
+          requiring `async def test_...` -- callers just call it like any
+          other function and get the reply back.
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why is `send_turn` a synchronous, blocking call rather than an `async def` method?
+
+why_avoid_async_test_ceremony:
+    - description: >
+          Because pytest support for async tests needs extra plumbing
+          (`pytest-asyncio`/`anyio` markers, an event-loop fixture) and
+          pushes async syntax (awaits, coroutine functions) onto every
+          test author, even though the actual async work is purely an
+          implementation detail of how `McpClientSession` happens to talk
+          to the server.
+    - why of:
+          value: why_sync_call
+          question: Why does avoiding `async def test_...` in caller code matter?
+
+why_hide_async_plumbing_from_tests:
+    - description: >
+          Because the thing under test is the MCP server's/model's live
+          behavior, not `McpClientSession`'s own concurrency; hiding the
+          async plumbing keeps test code focused on the scenario being
+          exercised (see `why_must_be_drop_in_replacement`) instead of on
+          subprocess/event-loop bookkeeping that has nothing to do with
+          what the test is actually checking.
+    - why of:
+          value: why_avoid_async_test_ceremony
+          question: Why should the async machinery stay hidden from test authors rather than being a normal part of writing a live test?
+
+why_single_shared_background_task:
+    - description: >
+          Because making the call synchronous still needs somewhere to
+          actually run the async work -- `_submit` hands each `send_turn`
+          call's coroutine to the one background asyncio task that
+          `__enter__` started (via a thread-safe queue + a
+          `concurrent.futures.Future` to bridge the result back), rather
+          than `send_turn` spinning up its own `asyncio.run(...)` per
+          call, so the real `mcp.ClientSession`/stdio connection that task
+          already opened keeps being reused.
+    - why of:
+          value: why_hide_async_plumbing_from_tests
+          question: Why does making `send_turn` synchronous require routing through a single shared background task (`_submit`/`_serve`), instead of `send_turn` just doing `asyncio.run(...)` itself?
+
+why_anyio_cancel_scope_same_task:
+    - description: >
+          Because `mcp`'s stdio transport opens an anyio task group at
+          connect time, and anyio requires a cancel scope to be exited
+          from the same task that entered it -- closing or using that
+          connection from a different task (e.g. a fresh one spun up per
+          `send_turn` call) raises "cancel scope in a different task", so
+          connect, every turn, and teardown all have to run inside that
+          one same task.
+    - why of:
+          value: why_single_shared_background_task
+          question: Why must the connection stay on the one already-running task instead of a fresh task per call?
+
+why_anyio_structured_concurrency_constraint:
+    - description: >
+          Because that's how anyio's structured-concurrency model works:
+          a cancel scope is tied to the call stack of the task that opened
+          it, so cancellation can be delivered and unwound deterministically
+          through that stack; letting a different task close a scope it
+          never entered would break that guarantee. This is a hard
+          constraint of the underlying anyio library, not a choice this
+          project made -- a suitable terminus, since it isn't itself
+          negotiable from within `McpClientSession`.
+    - why of:
+          value: why_anyio_cancel_scope_same_task
+          question: Why does anyio enforce that a cancel scope must be entered and exited on the same task?
+
+# ---------------------------------------------------------------------------
+# Chain 3: why does send_turn write a live trace as it runs.
+# ---------------------------------------------------------------------------
+
+why_trace_written_live:
+    - description: >
+          Because it plays the same debugging role `HeadlessSession`'s own
+          raw-line trace plays: a durable, turn-by-turn record of what the
+          model and tools actually did, not just the final reply.
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why does `send_turn` write every model response and tool call/result to a trace file as it happens?
+
+why_full_turn_record_for_debugging:
+    - description: >
+          Because live-model runs are expensive and non-deterministic to
+          reproduce; when a turn fails, `_fail`/`_fail_on_timeout` attach
+          `self.trace_path` to the failure message, so a developer can see
+          the exact sequence of prompts, model replies, and tool calls
+          that led to the failure without re-running the (costly, flaky)
+          live call.
+    - why of:
+          value: why_trace_written_live
+          question: Why does diagnosing a failure need the full turn-by-turn record rather than just the final reply or error?
+
+why_turn_can_fail_partway:
+    - description: >
+          Because `send_turn` drives a multi-iteration tool-calling loop
+          (`run_tool_calling_loop`, bounded by `max_tool_iterations`)
+          against a real model over the network -- any individual model
+          call or tool call inside that loop can time out or error, or
+          `asyncio.wait_for` can cut the whole turn off, after earlier
+          steps in the same turn already ran and had real side effects
+          (a tool actually invoked, a response already received).
+    - why of:
+          value: why_full_turn_record_for_debugging
+          question: Why would a turn's activity matter to a debugging trace if the turn hasn't necessarily succeeded or failed as one atomic unit?
+
+why_incremental_flush_for_partial_failures:
+    - description: >
+          Because a timeout, an exception mid-turn, or a crash can all
+          prevent an end-of-turn write from ever happening -- writing (and
+          flushing) each entry as it occurs, starting with the user prompt
+          before `_submit` is even called, guarantees whatever happened
+          before a failure is already durable on disk by the time
+          `_fail`/`_fail_on_timeout` runs.
+    - why of:
+          value: why_turn_can_fail_partway
+          question: Why write (and flush) the trace incrementally, entry by entry, instead of buffering it and writing once at the end of the turn?
+
+why_trace_opened_in_append_mode:
+    - description: >
+          Because `self.trace_path`'s handle used to be opened `"w"` and
+          held open for the whole session; a nested in-process call into
+          `run_tool_calling_loop` (its own `trace_path` passthrough, used
+          open-append-close per event) can append to that same path from a
+          different OS process, and a `"w"`-mode handle's write position
+          tracks independently of the file's actual growth -- so the outer
+          handle's next write would silently clobber what the nested call
+          had just appended. Switching to `open(path, "a")` makes every
+          write from either handle POSIX-guaranteed to land at the file's
+          current end regardless of what else grew it meanwhile (see
+          docs/manifest/history.yaml:
+          project_history.trace_file_opened_in_append_mode).
+    - why of:
+          value: why_incremental_flush_for_partial_failures
+          question: Why is the trace file opened in append (`"a"`) mode specifically, rather than write (`"w"`) mode?
+
+why_nested_calls_share_trace_path:
+    - description: >
+          Because a tool invoked mid-turn can itself be another
+          `run_tool_calling_loop` call (e.g. a nested sub-agent), and
+          letting it append into the *same* `trace_path` instead of
+          writing its own separate file produces one converged record of
+          everything that happened for the turn, including work done by
+          calls nested underneath it.
+    - why of:
+          value: why_trace_opened_in_append_mode
+          question: Why would a nested call ever need to write into the same trace file as the outer `send_turn` call in the first place?
+
+why_converged_trace_serves_same_debugging_purpose:
+    - description: >
+          Because the whole value of the trace is reconstructing exactly
+          what happened across a turn (established above,
+          `why_full_turn_record_for_debugging`) -- splitting nested work
+          into separate per-call files would defeat that same purpose by
+          scattering one turn's real sequence of events across multiple
+          artifacts a developer would have to manually interleave. This
+          reconnects to reasoning already established earlier in the
+          chain, a natural terminus.
+    - why of:
+          value: why_nested_calls_share_trace_path
+          question: Why does converging nested calls into one trace matter enough to justify append mode's stricter write-position guarantee?
+
+# ---------------------------------------------------------------------------
+# Chain 4: why send_turn's argument is a plain prompt string.
+# ---------------------------------------------------------------------------
+
+why_prompt_is_plain_string:
+    - description: >
+          Because the ongoing conversation's accumulated history is owned
+          and threaded internally by `run_tool_calling_loop`, inside the
+          shared background task -- `send_turn` only ever needs to hand it
+          this turn's new user text, not the message list built up so far.
+    - why of:
+          value: mcp_client_session_send_turn
+          question: "Why does `send_turn` take a single `prompt: str` argument rather than a structured message/history object?"
+
+why_history_owned_by_tool_calling_loop:
+    - description: >
+          Because `McpClientSession` is meant to be a drop-in replacement
+          for `HeadlessSession` (see `why_shape_mirrors_headless_session`),
+          whose own driving provider CLI likewise keeps its own
+          conversation state process-side for the whole `with` block --
+          either way, a caller supplies the next prompt and gets the next
+          reply, with no message-list bookkeeping of its own.
+    - why of:
+          value: why_prompt_is_plain_string
+          question: Why does the loop own the accumulated history internally rather than the caller passing it back in on every call?
+
+why_callers_freed_from_message_bookkeeping:
+    - description: >
+          Because `send_turn`'s callers are test authors writing
+          scenario-driven pytest tests (see
+          `why_must_be_drop_in_replacement`), and the thing worth their
+          effort is the scenario/model behavior under test -- not
+          correctly threading conversation state between calls. That's
+          exactly the kind of incidental complexity `McpClientSession`
+          exists to absorb, the same rationale already established for
+          hiding its async plumbing -- a natural terminus.
+    - why of:
+          value: why_history_owned_by_tool_calling_loop
+          question: Why should callers be freed from managing message-list bookkeeping themselves?
+
+# ---------------------------------------------------------------------------
+# Chain 5: why send_turn's deadline is min(turn_timeout, session budget).
+# ---------------------------------------------------------------------------
+
+why_deadline_is_minimum_of_turn_and_session:
+    - description: >
+          Because `session_timeout` bounds the whole session's wall-clock
+          runtime across every `send_turn` call combined, while
+          `turn_timeout` only bounds this one call -- late in a session, a
+          full `turn_timeout` might no longer fit inside what's left of
+          the session's own budget, so the deadline has to be whichever of
+          the two runs out first (`session_is_tighter` records which one,
+          for the eventual `_fail_on_timeout` message).
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why does `send_turn` compute its deadline as the minimum of a per-turn timeout and a per-session timeout, rather than enforcing `turn_timeout` alone?
+
+why_session_has_own_wall_clock_budget:
+    - description: >
+          Because a live-model test suite runs many turns, across many
+          scenarios, against real paid APIs -- `session_timeout` caps the
+          total time/cost a single test can spend even if every individual
+          turn stays within its own `turn_timeout`, guarding against one
+          runaway test (many turns, each individually fine, summing to an
+          unbounded total) rather than only bounding worst-case latency
+          per call.
+    - why of:
+          value: why_deadline_is_minimum_of_turn_and_session
+          question: Why does the session need its own overall wall-clock budget, separate from each individual turn's budget?
+
+why_cap_total_live_test_cost:
+    - description: >
+          Because emc2p's own live tests are meant to be run "deliberately
+          and sparingly" specifically because they "cost real usage" and
+          are "flaky by nature" (per emc2p's CLAUDE.md) -- an unbounded
+          total runtime across many individually well-behaved turns would
+          undermine that "run sparingly, bounded cost" intent even if no
+          single turn ever actually timed out.
+    - why of:
+          value: why_session_has_own_wall_clock_budget
+          question: Why is it important to cap total live-test cost/time at the session level rather than trusting per-turn timeouts alone to keep things bounded?
+
+why_bounded_cost_protects_project_mission:
+    - description: >
+          Because live tests are the very mechanism (established in
+          `why_real_wire_protocol_required`/`why_prioritize_live_over_synthetic`)
+          that makes emc2p's live-behavior guarantees credible; if running
+          them became so expensive or open-ended that nobody actually ran
+          them, that credibility would be lost -- undermining the same
+          mission that made needing live tests at all the answer in the
+          first place. This reconnects to the first chain's own terminus,
+          a natural stopping point.
+    - why of:
+          value: why_cap_total_live_test_cost
+          question: Why does keeping live-test cost/time bounded matter to the project at all?
+
+# ---------------------------------------------------------------------------
+# Chain 6: why send_turn is an instance method bound to session state.
+# ---------------------------------------------------------------------------
+
+why_send_turn_is_instance_method:
+    - description: >
+          Because each call needs access to session-scoped state
+          established at `__enter__` time -- the connected `ClientSession`
+          objects in `self._sessions`, the tool schemas in
+          `self._openai_tools`, the background loop/thread, the open trace
+          file, and the running cost/token totals -- all of which must
+          persist and accumulate across every `send_turn` call made inside
+          the same `with` block.
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why is `send_turn` a method on the `McpClientSession` instance rather than a free function?
+
+why_session_state_must_persist_across_turns:
+    - description: >
+          Because the class exists specifically to keep "every spawned
+          server's stdio subprocess and `ClientSession` open for the whole
+          `with` block ... so state a server manages (an opened registry,
+          ...) persists between `send_turn` calls" (per the class
+          docstring) -- reconnecting fresh on every call would both cost a
+          full subprocess/handshake every turn and would lose exactly the
+          kind of server-side state a multi-turn scenario test needs
+          carried across turns.
+    - why of:
+          value: why_send_turn_is_instance_method
+          question: Why must connections/tool schemas/trace file/totals persist across calls instead of being freshly established on each `send_turn` call?
+
+why_losing_server_state_would_undermine_live_testing:
+    - description: >
+          Because the whole reason for live-testing in the first place
+          (see `why_non_cli_models_must_be_live_tested`) is exercising
+          realistic, stateful scenarios across a whole conversation -- a
+          scenario test that reconnected fresh every turn would really be
+          testing a series of disconnected single-shot exchanges, not the
+          same continuous multi-turn interaction a real session actually
+          has. This reconnects to reasoning already established in the
+          first chain, a natural terminus.
+    - why of:
+          value: why_session_state_must_persist_across_turns
+          question: Why would losing server-side state between turns be a problem worth avoiding?
+
+# ---------------------------------------------------------------------------
+# Chain 7: why a failed turn is reported via pytest.fail rather than a
+# plain exception.
+# ---------------------------------------------------------------------------
+
+why_failure_reported_via_pytest_fail:
+    - description: >
+          Because `McpClientSession` is a testing utility whose callers
+          are pytest test functions; `_fail`/`_fail_on_timeout` calling
+          `pytest.fail(...)` reports the failure the same way any other
+          test assertion would, with the trace file's path attached to the
+          message, integrating directly into pytest's own reporting
+          instead of requiring every caller to catch and re-raise a plain
+          exception itself.
+    - why of:
+          value: mcp_client_session_send_turn
+          question: Why does `send_turn` fail via `pytest.fail` (through `self._fail`) instead of raising a plain exception on timeout/error?
+
+why_fail_finalizes_trace_and_usage_first:
+    - description: >
+          Because `_fail` calls `self.close()` before calling
+          `pytest.fail`, which flushes/closes the trace file and writes
+          out the final usage summary (`usage_summary()` to
+          `<trace_path>.usage.json`) -- so a failed run still leaves a
+          complete, inspectable trace and usage record on disk: exactly
+          the artifact `pytest.fail`'s own message points the developer
+          at.
+    - why of:
+          value: why_failure_reported_via_pytest_fail
+          question: Why does `_fail` also call `self.close()` before failing, instead of just calling `pytest.fail` directly?
+
+why_finalize_explicitly_before_raising:
+    - description: >
+          Because `pytest.fail` raises immediately and unwinds the stack
+          right there; relying on `__exit__`'s own teardown to eventually
+          close things would still work, but `_fail` closing explicitly
+          first (and setting `self._trace_file` back to `None`) makes the
+          later `close()` call from `__exit__` a safe no-op, rather than
+          leaving the ordering between "report the failure" and "finalize
+          the trace" implicit and coincidental. A defensive-coding
+          rationale, and a reasonable terminus for this chain.
+    - why of:
+          value: why_fail_finalizes_trace_and_usage_first
+          question: Why must the trace/usage files be finalized explicitly inside `_fail` rather than left for `__exit__`'s own teardown to close later?
