@@ -271,9 +271,13 @@ class McpClientSession:
     def send_turn(self, prompt: str) -> str:
         """Send one prompt on the ongoing conversation and block for its final reply.
 
-        Every model response and tool call/result this turn makes is
-        appended to `self.trace_path` as it happens, the same debugging
-        role `HeadlessSession`'s raw-line trace plays.
+        Submits the work to the session's single background asyncio task
+        (via a thread-safe queue + concurrent.futures.Future) so the real
+        `mcp.ClientSession` and `run_tool_calling_loop` machinery stay on
+        the one task that opened them. Every model response and tool
+        call/result this turn makes is appended to `self.trace_path` as
+        it happens, the same debugging role `HeadlessSession`'s raw-line
+        trace plays.
         """
         assert self._session_deadline is not None
         turn_deadline = time.monotonic() + self.turn_timeout

@@ -6,6 +6,17 @@ file_info:
           each answer as its own standalone concept, using the same
           ((why)) component (value/question/note) as before.
 
+          Unlike why.yaml, the starting method itself isn't a YAML entity
+          in this file -- its ``description`` component now comes from its
+          own real docstring in emc2p/testing/mcp_client_session.py, the
+          same source loading mechanism used for describing any other
+          Python object in this codebase. Every ``why of`` that used to
+          point at a local ``mcp_client_session_send_turn`` entity now
+          points at that method's real, fully-qualified path instead
+          (``emc2p.testing.mcp_client_session.McpClientSession.send_turn``),
+          so loading this file on its own isn't enough -- the Python
+          source has to be loaded alongside it too.
+
           The difference this time: every chain is pushed further, past
           any point where the reasoning might have felt naturally
           finished, until it reaches emc2p's own mission -- and every
@@ -49,21 +60,6 @@ why:
                   instead of mentioning other entries by name.
               type: str
               nullable: true
-
-mcp_client_session_send_turn:
-    - description: >
-          ``McpClientSession.send_turn(prompt)``, in
-          emc2p/testing/mcp_client_session.py. It sends one message into
-          the ongoing conversation and waits until the model has finished
-          replying and using any tools it needed for that turn, then hands
-          back the final reply. Behind the scenes, the actual work happens
-          on one dedicated background task that keeps running for the
-          whole session; `send_turn` hands its work off to that task and
-          waits for the result, rather than doing the work itself. This
-          keeps the real connection to the model, and the loop that lets
-          it call tools, running on that same task the whole time. As the
-          model replies and calls tools, everything it does is written
-          down, one event at a time, to a trace file on disk.
 
 # ---------------------------------------------------------------------------
 # The mission. The one and only terminus in this file: nothing explains
@@ -180,7 +176,7 @@ model_without_bundled_agent_cli:
           tool that already knows how to talk to it and run it in a loop,
           the way some other providers offer.
     - why of:
-          value: mcp_client_session_send_turn
+          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why build a new client from scratch, instead of always using an existing command-line tool to run models?
           note: >
               For example, at the time this was written, DeepSeek's own
@@ -216,7 +212,7 @@ deadline_is_tighter_of_two_budgets:
           job it's part of -- the real deadline is whichever of the two
           runs out first.
     - why of:
-          value: mcp_client_session_send_turn
+          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why does `send_turn` use whichever runs out first, a per-turn time limit or a per-session time limit, instead of only enforcing the per-turn limit?
 
 duplicate_test_surfaces_waste_effort:
@@ -263,7 +259,7 @@ history_owned_internally:
           fresh by the caller each time. The caller only ever needs to
           supply the next new message.
     - why of:
-          value: mcp_client_session_send_turn
+          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: "Why does `send_turn` only take one new plain-text message, instead of the whole conversation history?"
 
 append_mode_avoids_clobbering_concurrent_writers:
@@ -326,9 +322,9 @@ trace_as_durable_debug_record:
           what actually happened, including any smaller calls that
           happened inside that turn.
     - why of:
-        - value: mcp_client_session_send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why does `send_turn` write down every model reply and every tool call/result to a file as it happens?
-        - value: mcp_client_session_send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why would a call nested inside a turn ever need to write into that same file, instead of having its own separate file?
 
 explicit_finalization_avoids_implicit_ordering:
@@ -362,7 +358,7 @@ pytest_fail_integrates_with_test_reporting:
           reporting, instead of making every caller catch and translate an
           error themselves.
     - why of:
-          value: mcp_client_session_send_turn
+          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why does `send_turn` report failures using the testing tool's own `pytest.fail`, instead of just raising a plain error?
 
 sync_call_matches_session_shape:
@@ -376,9 +372,9 @@ sync_call_matches_session_shape:
           use it just like any normal function, without needing to write
           any special async code themselves.
     - why of:
-        - value: mcp_client_session_send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why does `send_turn` exist at all?
-        - value: mcp_client_session_send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why does `send_turn` wait for its result instead of running in the background like an async function would?
 
 single_shared_background_task_reuses_connection:
@@ -431,7 +427,7 @@ session_scoped_state_must_persist_across_calls:
           call after that has to live somewhere that outlasts any single
           call.
     - why of:
-          value: mcp_client_session_send_turn
+          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why is `send_turn` a method that belongs to an object, rather than a plain standalone function?
 
 reconnecting_per_call_loses_state_and_is_slow:
