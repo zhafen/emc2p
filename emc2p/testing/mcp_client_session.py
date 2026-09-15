@@ -167,6 +167,9 @@ class McpClientSession:
     # Lifecycle
 
     def __enter__(self) -> "McpClientSession":
+        """Connect every server `allowed_tools` references, skipping the
+        test if a required command isn't on PATH, and start the session's
+        single background event loop."""
         server_params = _load_server_params(self.mcp_config, self.cwd, self.extra_env)
         wanted = {name: params for name, params in server_params.items() if self._server_is_used(name)}
         for name, params in wanted.items():
@@ -215,6 +218,9 @@ class McpClientSession:
             asyncio.get_running_loop().stop()
 
     async def _connect(self, stack: AsyncExitStack, server_params: dict[str, StdioServerParameters]) -> None:
+        """Open each server's stdio connection and record the subset of its
+        tools `allowed_tools` actually references, in the OpenAI
+        tool-call schema `run_tool_calling_loop` expects."""
         for name, params in server_params.items():
             read, write = await stack.enter_async_context(stdio_client(params))
             session = await stack.enter_async_context(ClientSession(read, write))
@@ -254,10 +260,13 @@ class McpClientSession:
                     future.set_exception(exc)
 
     def _server_is_used(self, server_name: str) -> bool:
+        """Whether any of `allowed_tools`' patterns actually names a tool on this server."""
         prefix = f"mcp__{server_name}__"
         return any(pattern.startswith(prefix) for pattern in self.allowed_tools)
 
     def _submit(self, coro_factory, timeout: float | None) -> Any:
+        """Queue a coroutine for the background task to run and block for
+        its result, via a `concurrent.futures.Future`."""
         future: concurrent.futures.Future = concurrent.futures.Future()
         self._inbox.put((coro_factory, future))
         try:
@@ -298,11 +307,13 @@ class McpClientSession:
             self._fail(str(exc))
 
     def _fail_on_timeout(self, session_is_tighter: bool, still_doing: str) -> None:
+        """Fail the test, naming whichever of the turn or session deadline actually ran out."""
         if session_is_tighter:
             self._fail(f"session timed out after {self.session_timeout}s total ({still_doing})")
         self._fail(f"turn timed out after {self.turn_timeout}s waiting for a reply")
 
     async def _run_turn(self, prompt: str, timeout: float) -> str:
+        """Run one full tool-calling loop for `prompt`, enforcing `timeout` as the authoritative deadline."""
         return await asyncio.wait_for(
             run_tool_calling_loop(
                 prompt,
@@ -317,6 +328,8 @@ class McpClientSession:
         )
 
     async def _dispatch(self, full_name: str, arguments: dict[str, Any]) -> str:
+        """Call one allowed tool and return its result text, or an error
+        string, for the model to see as its tool-call result."""
         if full_name not in self._tool_lookup:
             return f"Error: {full_name!r} is not an allowed tool for this session."
         server_name, real_name = self._tool_lookup[full_name]
@@ -331,6 +344,8 @@ class McpClientSession:
         return text
 
     def _trace_and_accumulate(self, response: Any) -> None:
+        """Record one model response to the trace file and add its
+        usage/cost to this session's running totals."""
         message = response.choices[0].message
         tool_calls = [
             {"name": tc.function.name, "arguments": tc.function.arguments} for tc in (message.tool_calls or [])
@@ -371,10 +386,13 @@ class McpClientSession:
         }
 
     def _fail(self, message: str) -> None:
+        """Close the session and fail the test, with the trace path in the message."""
         self.close()
         pytest.fail(f"{message}\ntrace: {self.trace_path}")
 
     def close(self) -> None:
+        """Flush and close the trace file, write out the final usage
+        summary, and tear down the background connection."""
         if self._trace_file is not None:
             self._trace_file.close()
             self._trace_file = None
@@ -392,4 +410,5 @@ class McpClientSession:
         loop.close()
 
     def __exit__(self, *exc_info) -> None:
+        """Close the session."""
         self.close()

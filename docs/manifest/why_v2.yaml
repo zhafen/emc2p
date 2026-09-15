@@ -110,6 +110,16 @@ live_testing_only_helps_if_trustworthy_and_practical:
           question: Why does it matter whether the trace file stays free of silent corruption from concurrent writers?
         - value: explicit_finalization_avoids_implicit_ordering
           question: Why does it matter whether a failure report points to a complete, finished record rather than a possibly-unfinished one?
+        - value: McpClientSession._fail_on_timeout
+          question: Why does it matter whether a timeout failure names which budget actually ran out, rather than just saying a timeout happened?
+        - value: explicit_unsupported_input_fails_loudly
+          question: Why does it matter whether an unsupported configuration fails loudly and immediately, rather than being silently ignored or guessed at?
+        - value: missing_prerequisite_should_skip_not_fail
+          question: Why does it matter whether a test that can't run here is marked skipped, rather than reported as a failure?
+        - value: narrowing_tool_surface_limits_blast_radius
+          question: Why does it matter whether a live test's model only ever sees the specific tools it was actually meant to exercise?
+        - value: authoritative_timeout_enforced_close_to_the_work
+          question: Why does it matter whether a deadline is actually enforced by the code doing the work, not just estimated by an outer caller?
 
 continuous_connection_enables_realistic_multiturn_testing:
     - description: >
@@ -123,6 +133,8 @@ continuous_connection_enables_realistic_multiturn_testing:
           question: Why would testing only a string of disconnected exchanges, instead of one continuous conversation, actually fall short of what the project needs?
         - value: structured_concurrency_ties_cancellation_to_task_stack
           question: Why does the project need to build its code around this fixed background-task rule at all, rather than avoiding needing one shared connection in the first place?
+        - value: tool_errors_become_conversation_content_not_python_exceptions
+          question: Why does it matter whether a model driving its own tool calls sees a failed call the way a real conversation partner would, rather than as a crash?
 
 # ---------------------------------------------------------------------------
 # Everything below is unchanged from why.yaml's chains -- each one still
@@ -176,13 +188,15 @@ model_without_bundled_agent_cli:
           tool that already knows how to talk to it and run it in a loop,
           the way some other providers offer.
     - why of:
-          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why build a new client from scratch, instead of always using an existing command-line tool to run models?
           note: >
               For example, at the time this was written, DeepSeek's own
               command-line tool (`dsh`) was a brand-new preview release.
               It could only run one command at a time, and it didn't yet
               document how to see streaming output or usage numbers.
+        - value: testing.mcp_client_session
+          question: Why does this module exist as its own thing, instead of extending an existing session type to cover more models?
 
 live_tests_must_stay_bounded_to_stay_sparing:
     - description: >
@@ -192,8 +206,16 @@ live_tests_must_stay_bounded_to_stay_sparing:
           the total cost or running time grow without limit, even if no
           single call ever actually times out, would go against that.
     - why of:
-          value: aggregate_budget_guards_against_runaway_total
+        - value: aggregate_budget_guards_against_runaway_total
           question: Why is it important to cap the total cost and time of live tests, instead of just trusting each individual limit to keep things in check?
+        - value: McpClientSession._server_is_used
+          question: Why avoid spawning a server that nobody's allowed tools actually reference?
+        - value: McpClientSession._trace_and_accumulate
+          question: Why track running cost and token totals as each response arrives, rather than only computing them when asked for?
+        - value: McpClientSession.usage_summary
+          question: Why expose running usage totals mid-session as their own method, rather than only ever computing them once at the end?
+        - value: McpClientSession.close
+          question: Why persist the final usage summary to its own file, rather than it only being available in memory while the session was open?
 
 aggregate_budget_guards_against_runaway_total:
     - description: >
@@ -251,6 +273,8 @@ drop_in_backend_replacement:
           question: Why does this need to look and work exactly like `HeadlessSession.send_turn`?
         - value: history_owned_internally
           question: Why does it keep track of the conversation itself, instead of making the caller pass the whole conversation back in every time?
+        - value: McpClientSession.__exit__
+          question: Why does this support the `with`-block protocol (closing automatically) instead of requiring every caller to remember to close it themselves?
 
 history_owned_internally:
     - description: >
@@ -289,8 +313,10 @@ incremental_durable_writes_survive_failure:
           happened is safely saved by the time something later in that
           same turn fails.
     - why of:
-          value: turn_has_multiple_fallible_steps
+        - value: turn_has_multiple_fallible_steps
           question: Why save the record one entry at a time, instead of holding it all and saving it once at the end of the turn?
+        - value: McpClientSession._trace_and_accumulate
+          question: Why does this write the model's response to the trace file the moment it happens, rather than only after the whole turn completes?
 
 turn_has_multiple_fallible_steps:
     - description: >
@@ -326,6 +352,8 @@ trace_as_durable_debug_record:
           question: Why does `send_turn` write down every model reply and every tool call/result to a file as it happens?
         - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why would a call nested inside a turn ever need to write into that same file, instead of having its own separate file?
+        - value: unique_trace_path_avoids_collisions_between_runs
+          question: Why does a durable record need a path that's guaranteed not to collide with any other run's?
 
 explicit_finalization_avoids_implicit_ordering:
     - description: >
@@ -347,8 +375,10 @@ failure_report_should_point_to_complete_record:
           reporting the failure means nothing is left half-written by the
           time someone actually goes to look at it.
     - why of:
-          value: pytest_fail_integrates_with_test_reporting
+        - value: pytest_fail_integrates_with_test_reporting
           question: Why finish saving the trace and usage record before reporting the failure, instead of reporting the failure first?
+        - value: McpClientSession._fail
+          question: Why does this close the session before raising the test failure, rather than raising first?
 
 pytest_fail_integrates_with_test_reporting:
     - description: >
@@ -386,8 +416,14 @@ single_shared_background_task_reuses_connection:
           call, instead of opening (and paying for) a brand-new connection
           each time.
     - why of:
-          value: sync_call_matches_session_shape
+        - value: sync_call_matches_session_shape
           question: Why does making this an ordinary, wait-for-the-result call require routing through one shared background task, instead of each call just starting its own background loop?
+        - value: McpClientSession.__enter__
+          question: Why does entering the session start one background thread and event loop for the whole session, instead of creating one per call?
+        - value: McpClientSession._serve
+          question: Why does the background task process queued work one item at a time in a loop, instead of each call being handled independently?
+        - value: McpClientSession._submit
+          question: Why does submitting work bridge each call through a `concurrent.futures.Future` rather than the caller awaiting the background work directly?
 
 cancel_scope_bound_to_owning_task:
     - description: >
@@ -398,9 +434,13 @@ cancel_scope_bound_to_owning_task:
           entire lifetime -- opening it, using it, and closing it -- all
           has to happen on that one same task.
     - why of:
-          value: single_shared_background_task_reuses_connection
+        - value: single_shared_background_task_reuses_connection
           question: Why must the connection stay on that one already-running background task, instead of a new one for every call?
           note: "In practice: the underlying connection library opens a group of background tasks the moment it connects."
+        - value: McpClientSession._worker
+          question: Why does this one task own connect, every queued turn, and teardown, rather than splitting them across separately scheduled work?
+        - value: McpClientSession.close
+          question: Why does closing tear the connection down by queuing a stop signal for that same background task to process, rather than closing the loop directly from the calling thread?
 
 structured_concurrency_ties_cancellation_to_task_stack:
     - description: >
@@ -427,8 +467,10 @@ session_scoped_state_must_persist_across_calls:
           call after that has to live somewhere that outlasts any single
           call.
     - why of:
-          value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
+        - value: emc2p.testing.mcp_client_session.McpClientSession.send_turn
           question: Why is `send_turn` a method that belongs to an object, rather than a plain standalone function?
+        - value: mcp_client_session.McpClientSession
+          question: Why does this exist as a class you construct and hold onto, rather than a set of free functions?
 
 reconnecting_per_call_loses_state_and_is_slow:
     - description: >
@@ -451,3 +493,73 @@ disconnected_exchanges_arent_a_conversation:
     - why of:
           value: reconnecting_per_call_loses_state_and_is_slow
           question: Why would losing information between calls actually be a problem, rather than just a matter of speed?
+
+# ---------------------------------------------------------------------------
+# Small concepts added when scaling this up to every object in
+# mcp_client_session.py -- each closes off one object's own "why" by
+# connecting into a hub or chain concept that already reaches the mission
+# above, rather than starting a new, disconnected chain of its own.
+# ---------------------------------------------------------------------------
+
+explicit_unsupported_input_fails_loudly:
+    - description: >
+          Refusing an input a piece of code doesn't know how to handle --
+          rather than silently ignoring it or guessing what was meant --
+          surfaces a real gap immediately, while it's still cheap to
+          notice and fix, instead of letting it fail confusingly somewhere
+          much later.
+    - why of:
+          value: mcp_client_session._load_server_params
+          question: Why does this raise an error for any transport other than `stdio`, instead of skipping or guessing at unsupported entries?
+
+unique_trace_path_avoids_collisions_between_runs:
+    - description: >
+          Building a record's file name from a timestamp and a random
+          component the moment something starts guarantees no two runs --
+          even ones started in the same second -- ever share a path or
+          overwrite each other's record.
+    - why of:
+          value: McpClientSession.__init__
+          question: Why does this generate the trace file's full name upfront, before the session has actually done anything yet?
+
+missing_prerequisite_should_skip_not_fail:
+    - description: >
+          When something can't run because a thing it depends on isn't
+          installed or available here -- not because the code being
+          tested is wrong -- marking it skipped keeps that distinction
+          visible, instead of reporting a false failure that looks like a
+          real bug.
+    - why of:
+          value: McpClientSession.__enter__
+          question: Why does this skip the test, rather than failing it, when a required server's command isn't on PATH?
+
+narrowing_tool_surface_limits_blast_radius:
+    - description: >
+          Only exposing the specific tools something actually asked for --
+          rather than everything a server happens to offer -- keeps what a
+          live test's model can do deliberately scoped, instead of
+          accidentally exercising (or being affected by) capabilities
+          nobody asked to test.
+    - why of:
+          value: McpClientSession._connect
+          question: Why does this filter each server's tools down to the ones `allowed_tools` actually references, instead of exposing everything the server has?
+
+authoritative_timeout_enforced_close_to_the_work:
+    - description: >
+          The deadline that actually cuts work off should be enforced
+          right where that work happens, not only estimated by an outer
+          caller -- an outer check can at best guess how long is left;
+          only the code doing the work can stop it exactly on time.
+    - why of:
+          value: McpClientSession._run_turn
+          question: Why does this enforce its own timeout, when the caller already computed an outer deadline before calling it?
+
+tool_errors_become_conversation_content_not_python_exceptions:
+    - description: >
+          A model driving its own tool calls needs to see a failed tool
+          call the same way a real conversation partner would -- as part
+          of the conversation it can react to -- not as a crash that ends
+          the whole exchange before it can even respond.
+    - why of:
+          value: McpClientSession._dispatch
+          question: Why does this return an error message as the tool's result text, instead of raising a Python exception when a tool call fails?
