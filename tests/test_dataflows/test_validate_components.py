@@ -281,8 +281,11 @@ class TestValidationResultsDeclaredSchemas:
             "range": field_range,
         }
 
-    def _component_type_row(self, entity_id):
-        return {"entity_id": entity_id, "component_index": 0, "value": None}
+    def _component_type_row(self, entity_id, declares_type_name):
+        return {
+            "entity_id": entity_id, "component_index": 0, "value": None,
+            "declares_type_name": declares_type_name,
+        }
 
     def _call(self, components, field_rows, entity_id_rows):
         validated_field = _make_field_table(field_rows)
@@ -296,7 +299,7 @@ class TestValidationResultsDeclaredSchemas:
         Not the generic fallback a fieldless tag type gets.
         """
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_widget")]),
+            "component_type": _make_component_table([self._component_type_row("eid_widget", "widget")]),
         }
         field_rows = [
             self._field_row("eid_widget", "width", field_type="float"),
@@ -317,7 +320,7 @@ class TestValidationResultsDeclaredSchemas:
         Matching what the loader gives such a type when it does have rows.
         """
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_marker")]),
+            "component_type": _make_component_table([self._component_type_row("eid_marker", "marker")]),
         }
         entity_id_rows = [self._entity_id_row("eid_marker", "marker")]
         _, _, declared_schemas = self._call(components, [], entity_id_rows)
@@ -328,7 +331,7 @@ class TestValidationResultsDeclaredSchemas:
         """A component type that already has rows this batch is skipped --
         declared_schemas is only for types with no data of their own yet."""
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_marker")]),
+            "component_type": _make_component_table([self._component_type_row("eid_marker", "marker")]),
             "marker": _make_component_table([{"entity_id": "e1", "component_index": 0, "value": None}]),
         }
         entity_id_rows = [self._entity_id_row("eid_marker", "marker")]
@@ -341,6 +344,49 @@ class TestValidationResultsDeclaredSchemas:
         components = {"desc": _make_component_table([{"entity_id": "e1", "component_index": 0, "value": "hi"}])}
         _, _, declared_schemas = self._call(components, [], [])
         assert declared_schemas == {}
+
+
+class TestDeclaredComponentTypes:
+    """Tests for _declared_component_types, which reads directly from the
+    component_type (definitions) table's own declares_type_name column
+    (task #14) -- regression coverage for the bug this replaced, where
+    every entity with ANY component at all (not just ones that actually
+    declared a component_type tag) leaked into known_component_types."""
+
+    def test_reads_declares_type_name_from_tag_rows(self):
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "declares_type_name": "widget"},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == {"widget"}
+
+    def test_a_row_with_no_declares_type_name_does_not_leak_in(self):
+        """A row lacking declares_type_name (e.g. one that isn't actually
+        a component_type tag) contributes nothing -- this is exactly the
+        shape the old unfiltered-join bug used to produce for every
+        entity that merely *used* a declared type, not declared one."""
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "declares_type_name": "widget"},
+                {"entity_id": "eid_thing", "component_index": 0, "declares_type_name": None},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == {"widget"}
+
+    def test_no_component_type_key_returns_empty_set(self):
+        assert validate_components._declared_component_types({}) == set()
+
+    def test_missing_declares_type_name_column_returns_empty_set(self):
+        """A component_type table built without the declares_type_name
+        column (e.g. an older/hand-built fixture) degrades to no
+        declared types, rather than raising."""
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "value": None},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == set()
 
 
 class TestFieldValidationResults:

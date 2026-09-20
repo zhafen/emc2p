@@ -581,13 +581,24 @@ def entity_id_table(yaml_spine: ir.Table, csv_spine: ir.Table = None) -> ir.Tabl
 
 
 
-def component_type_table(
+def component_instance_table(
     keyvalue_store: ir.Table,
     csv_component_tables: dict[str, ir.Table] = None,
 ) -> ir.Table:
-    """Build one row per component instance, including component_type's own
-    declared boolean flags (``derived``, ``skip_on_export``,
-    ``implicit_parent``, as of this writing).
+    """Build one row per component instance across every component type in
+    the registry -- the full, unfiltered inventory, including instances of
+    ``component_type`` itself (a ``- component_type: {...}`` tag is still a
+    component instance, the same as any other component).
+
+    Also carries component_type's own declared boolean flags (``derived``,
+    ``skip_on_export``, ``implicit_parent``, as of this writing), and a
+    ``declares_type_name`` column giving each ``component_type`` tag row the
+    human-readable name of the type it declares (null on every other row).
+    See ``component_type_table`` for the definitions-only subset of this
+    table (just the ``component_type`` tag rows), which is what most
+    consumers actually want -- e.g. "every component type flagged
+    ``derived``" or "every declared component type name" -- rather than
+    this full per-instance inventory.
 
     Reads explicit ``component_type`` component entries from the keyvalue_store to
     populate those flag columns on the metadata table. Which flags exist is
@@ -601,17 +612,19 @@ def component_type_table(
     row, i.e. one row per ``"{stem}_comp"`` component instance) rather than
     ``csv_spine`` (one row per *file*/entity) — a whole CSV file is a single
     entity with many component instances attached, so the two are
-    different granularities.
+    different granularities. CSV rows can never be ``component_type`` tag
+    rows (a CSV row is always an instance of its own ``"{stem}_comp"``
+    type), so their ``declares_type_name`` is always null.
 
     Returns
     -------
     ir.Table
         Columns: entity_id, component_index, component_type, modifier,
-        plus one column per declared component_type flag.
+        declares_type_name, plus one column per declared component_type flag.
     """
     df = keyvalue_store.execute()
 
-    entity_keys = (
+    display_keys = (
         df[["entity_id", "display_key"]]
         .drop_duplicates(subset=["entity_id"])
         .set_index("entity_id")["display_key"]
@@ -623,7 +636,7 @@ def component_type_table(
     # on itself (builtins.yaml), not a hardcoded list -- keyed by
     # (entity_id, component_index) rather than component_index alone in
     # case more than one loaded entity somehow resolves to that same key.
-    type_schema_eids = {eid for eid, key in entity_keys.items() if key == "component_type"}
+    type_schema_eids = {eid for eid, key in display_keys.items() if key == "component_type"}
     field_rows = df[(df["component_type"] == "field") & df["entity_id"].isin(type_schema_eids)]
     flag_value_by_key = field_rows[field_rows["field"] == "value"].set_index(
         ["entity_id", "component_index"]
@@ -655,7 +668,7 @@ def component_type_table(
         val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
         if field in flagged_sets:
             own_flags.setdefault((eid, cidx), {})[field] = val
-        type_name = entity_keys.get(eid, "")
+        type_name = display_keys.get(eid, "")
         if not type_name:
             continue
         if field in flagged_sets and val:
@@ -674,6 +687,14 @@ def component_type_table(
             axis=1,
         )
 
+    # declares_type_name: only tag rows actually declare a type; every
+    # other row gets null rather than re-deriving its own display_key
+    # (which would just be that row's *own* entity, not a type name it
+    # declares).
+    meta_df["declares_type_name"] = pd.NA
+    meta_df.loc[is_tag_row, "declares_type_name"] = meta_df.loc[is_tag_row, "entity_id"].map(display_keys)
+    meta_df["declares_type_name"] = meta_df["declares_type_name"].astype(pd.StringDtype())
+
     meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
     yaml_ct = ibis.memtable(meta_df)
 
@@ -688,9 +709,36 @@ def component_type_table(
     csv_df = pd.concat(csv_rows, ignore_index=True)
     for flag in flag_names:
         csv_df[flag] = False
+    csv_df["declares_type_name"] = pd.NA
+    csv_df["declares_type_name"] = csv_df["declares_type_name"].astype(pd.StringDtype())
     csv_df["modifier"] = csv_df["modifier"].astype(pd.StringDtype())
     csv_df["component_type"] = csv_df["component_type"].astype(pd.StringDtype())
     return ibis.union(yaml_ct, ibis.memtable(csv_df))
+
+
+def component_type_table(component_instance_table: ir.Table) -> ir.Table:
+    """The component type DEFINITIONS table: ``component_instance_table``
+    filtered down to just its ``component_type`` tag rows -- one row per
+    declared component type, each carrying its own declared flags
+    (``derived``/``skip_on_export``/``implicit_parent``) and
+    ``declares_type_name`` (see ``component_instance_table``).
+
+    Split out from the full per-instance inventory (task #14) so a
+    consumer that wants "every declared component type" (e.g.
+    ``validate_components._declared_component_types``) can read this
+    directly instead of re-deriving it from the full inventory, where
+    every entity with ANY component at all -- not just ones that actually
+    declared a ``component_type`` tag -- used to leak in.
+
+    Returns
+    -------
+    ir.Table
+        Columns: entity_id, component_index, component_type, modifier,
+        declares_type_name, plus one column per declared component_type flag.
+    """
+    return component_instance_table.filter(
+        component_instance_table.component_type == "component_type"
+    )
 
 
 def component_tables(
@@ -750,6 +798,7 @@ def component_tables(
 def registry(
     entity_id_table: ir.Table,
     component_type_table: ir.Table,
+    component_instance_table: ir.Table,
     component_tables: dict[str, ir.Table],
 ) -> Registry:
     """Load the constituents of a registry into the registry object.
@@ -759,7 +808,15 @@ def registry(
     entity_id_table : ir.Table
         One row per entity (hash, path, value, display_alias, display_key, filepath).
     component_type_table : ir.Table
-        One row per component instance (entity_id, component_index, component_type, modifier).
+        The component type DEFINITIONS table: one row per declared
+        component_type tag (entity_id, component_index, component_type,
+        modifier, declares_type_name, plus flag columns). See
+        ``component_instance_table`` for the full per-instance inventory
+        this used to double as, before task #14 split it out.
+    component_instance_table : ir.Table
+        One row per component instance across every component type in the
+        registry (entity_id, component_index, component_type, modifier,
+        declares_type_name, plus flag columns) -- the full inventory.
     component_tables : dict[str, ir.Table]
         Per-component-type data tables.
 
@@ -771,13 +828,15 @@ def registry(
     conn = ibis.duckdb.connect()
     conn.create_table("entity_id", entity_id_table.to_pyarrow(), overwrite=True)
     conn.create_table("component_type", component_type_table.to_pyarrow(), overwrite=True)
+    conn.create_table("component_instance", component_instance_table.to_pyarrow(), overwrite=True)
     components = {
         "entity_id": conn.table("entity_id"),
         "component_type": conn.table("component_type"),
+        "component_instance": conn.table("component_instance"),
     }
     for comp_type, table in component_tables.items():
         if comp_type == "component_type":
-            continue  # flags already incorporated into component_type_table
+            continue  # flags already incorporated into component_type_table/component_instance_table
         if comp_type == "entity_id":
             continue  # the spine table already comes from entity_id_table;
             # a bare `entity_id` component here would clobber it.

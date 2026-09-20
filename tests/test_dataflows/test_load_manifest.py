@@ -287,11 +287,20 @@ def _make_entity_id_table():
 
 
 def _make_component_type_table():
+    """An (empty) component type DEFINITIONS table -- no component_type
+    tags declared in this minimal fixture."""
+    df = pd.DataFrame(columns=["entity_id", "component_index", "component_type", "modifier", "declares_type_name"])
+    return ibis.memtable(df.astype(str))
+
+
+def _make_component_instance_table():
     df = pd.DataFrame([{
         "entity_id": "abc", "component_index": 0,
         "component_type": "description", "modifier": pd.NA,
+        "declares_type_name": pd.NA,
     }])
     df["modifier"] = df["modifier"].astype(pd.StringDtype())
+    df["declares_type_name"] = df["declares_type_name"].astype(pd.StringDtype())
     return ibis.memtable(df)
 
 
@@ -300,20 +309,33 @@ class TestRegistry:
     def test_returns_registry_instance(self):
         eid = _make_entity_id_table()
         ct = _make_component_type_table()
+        ci = _make_component_instance_table()
         comps = {"description": ibis.memtable(pd.DataFrame([{"entity_id": "e1", "value": "Hello"}]))}
-        result = load_manifest.registry(eid, ct, comps)
+        result = load_manifest.registry(eid, ct, ci, comps)
         assert isinstance(result, Registry)
 
     def test_registry_has_component_types(self):
         eid = _make_entity_id_table()
         ct = _make_component_type_table()
+        ci = _make_component_instance_table()
         comps = {
             "description": ibis.memtable(pd.DataFrame([{"entity_id": "e1", "value": "Hello"}])),
             "task": ibis.memtable(pd.DataFrame([{"entity_id": "e1"}])),
         }
-        result = load_manifest.registry(eid, ct, comps)
+        result = load_manifest.registry(eid, ct, ci, comps)
         assert "description" in result.component_types
         assert "task" in result.component_types
+
+    def test_registry_has_component_type_and_component_instance(self):
+        """Both the definitions table and the full-inventory table are
+        registered under their own keys (task #14's split)."""
+        eid = _make_entity_id_table()
+        ct = _make_component_type_table()
+        ci = _make_component_instance_table()
+        comps = {"description": ibis.memtable(pd.DataFrame([{"entity_id": "e1", "value": "Hello"}]))}
+        result = load_manifest.registry(eid, ct, ci, comps)
+        assert "component_type" in result.component_types
+        assert "component_instance" in result.component_types
 
 
 # pathvalue_pairs
@@ -436,6 +458,77 @@ class TestPathvaluePairs:
 def _pvp(pairs: list[tuple[str, str]]) -> ibis.Table:
     """Create a pathvalue_pairs ibis Table from (path, value) tuples."""
     return ibis.memtable(pd.DataFrame(pairs, columns=["path", "value"]))
+
+
+class TestComponentInstanceAndTypeTable:
+    """Tests for component_instance_table (the full per-instance
+    inventory) and component_type_table (its definitions-only subset),
+    the task #14 split of what used to be one dual-purpose table.
+
+    ``_manifest`` is a small, self-contained entity-first dict declaring
+    its own "component_type" schema entity (mirroring builtins.yaml's
+    real one) rather than pulling in the real builtins directory, so the
+    fixture stays minimal and legible.
+    """
+
+    def _manifest(self) -> dict:
+        return {
+            "component_type": [
+                {"field": {"skip_on_export": {"type": "bool"}}},
+            ],
+            "widget": [
+                {"component_type": {"skip_on_export": True}},
+            ],
+            "thing": [
+                {"widget": "hello"},
+            ],
+        }
+
+    def _tables(self):
+        wrapped = {_FILE_ID: self._manifest()}
+        pvp = load_manifest.pathvalue_pairs(wrapped)
+        kvs = load_manifest.keyvalue_store(pvp)
+        instance = load_manifest.component_instance_table(kvs)
+        defs = load_manifest.component_type_table(instance)
+        return instance.to_pandas(), defs.to_pandas()
+
+    def test_component_instance_table_includes_every_instance(self):
+        """The full inventory includes both the widget type's own
+        declaration tag AND thing's instance of that type."""
+        instance_df, _ = self._tables()
+        assert set(instance_df["component_type"]) >= {"component_type", "widget"}
+        assert len(instance_df[instance_df["component_type"] == "widget"]) == 1
+
+    def test_component_instance_table_propagates_flag_onto_instances(self):
+        """thing's own `widget` instance row carries the flag widget's
+        own component_type tag declared (skip_on_export: true)."""
+        instance_df, _ = self._tables()
+        widget_instance = instance_df[instance_df["component_type"] == "widget"].iloc[0]
+        assert bool(widget_instance["skip_on_export"]) is True
+
+    def test_component_type_table_is_definitions_only(self):
+        """The defs table has exactly the component_type tag row(s) --
+        not thing's own `widget` instance row."""
+        _, defs_df = self._tables()
+        assert set(defs_df["component_type"]) == {"component_type"}
+        assert len(defs_df) == 1
+
+    def test_component_type_table_declares_type_name(self):
+        """The defs table's declares_type_name names the type each tag
+        row declares -- here, "widget" (the owning entity's own
+        display_key), not "component_type" (its own component_type
+        column, which is the same for every tag row regardless of which
+        type it declares)."""
+        _, defs_df = self._tables()
+        assert list(defs_df["declares_type_name"]) == ["widget"]
+
+    def test_component_instance_table_declares_type_name_only_on_tag_rows(self):
+        """Every non-tag row (e.g. thing's own widget instance) has a
+        null declares_type_name -- it doesn't declare a type, it's an
+        instance of one."""
+        instance_df, _ = self._tables()
+        widget_instance = instance_df[instance_df["component_type"] == "widget"].iloc[0]
+        assert pd.isna(widget_instance["declares_type_name"])
 
 
 # component_tables

@@ -452,7 +452,7 @@ def _empty_component_schema(fields: dict) -> ibis.Schema:
     return ibis.schema(cols)
 
 
-def _declared_component_types(components: dict, entity_id: ir.Table) -> set[str]:
+def _declared_component_types(components: dict) -> set[str]:
     """Return every component type name declared via a ``component_type`` tag.
 
     A component type is declared by attaching a bare ``component_type`` tag
@@ -461,13 +461,22 @@ def _declared_component_types(components: dict, entity_id: ir.Table) -> set[str]
     declared by. This is a broader net than ``_build_component_schemas``,
     which only finds types that also have ``field`` sub-entries; a fieldless
     tag type has none, but is still a legitimate component type.
+
+    Reads directly from ``components["component_type"]``'s own
+    ``declares_type_name`` column (see
+    ``load_manifest.component_type_table``/``component_instance_table``,
+    task #14) rather than re-deriving which entities declared a type by
+    joining ``entity_id`` against every ``component_type`` row's own
+    ``entity_id`` -- which, before that table was split into
+    definitions-only, silently included every entity with ANY component at
+    all, not just ones that actually declared a ``component_type`` tag.
     """
     if "component_type" not in components:
         return set()
-    eids = set(components["component_type"].execute()["entity_id"].dropna().astype(str))
-    df_entity = entity_id.execute()
-    matches = df_entity[df_entity["value"].isin(eids)]
-    return set(matches["display_key"].dropna().astype(str))
+    df = components["component_type"].execute()
+    if "declares_type_name" not in df.columns:
+        return set()
+    return set(df["declares_type_name"].dropna().astype(str))
 
 
 @unpack_fields("validated_components", "invalid_field", "declared_schemas")
@@ -529,7 +538,7 @@ def validation_results(
         can return an empty, correctly-typed result for it instead of
         raising.
     """
-    declared_types = _declared_component_types(components, entity_id)
+    declared_types = _declared_component_types(components)
     existing_field = existing_registry.get("field") if existing_registry is not None else None
     existing_entity_id = existing_registry.get("entity_id") if existing_registry is not None else None
     # Built for every declared type, not just ones with data this batch: a

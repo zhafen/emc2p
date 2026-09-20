@@ -845,15 +845,18 @@ class Registry:
         by_type: dict[str, pd.DataFrame] = {}
         if resolved_id is not None:
             for comp_type in self.component_types:
-                # "component_type" isn't entity data -- it's the registry's
-                # own bookkeeping of which component types this entity
-                # carries (one row per type, each shaped identically:
+                # "component_type"/"component_instance" aren't entity data
+                # -- they're the registry's own bookkeeping (see
+                # emc2p.dataflows.etl.load_manifest.component_type_table/
+                # component_instance_table): which component type(s) this
+                # entity declares, and which component instance(s) it
+                # carries (one row per instance, each shaped identically:
                 # derived/implicit_parent/skip_on_export). Every other
                 # section already names its own type in its "## " heading,
-                # so showing this too is pure noise: a run of
+                # so showing either of these too is pure noise: a run of
                 # near-identical, hard-to-tell-apart blocks in front of the
                 # entity's actual data rather than after it.
-                if comp_type == "component_type":
+                if comp_type in ("component_type", "component_instance"):
                     continue
                 try:
                     df = self.view(comp_type, resolved_id).to_pandas()

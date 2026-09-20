@@ -16,7 +16,12 @@ if TYPE_CHECKING:
 
 # Intrinsic emc2p bookkeeping component types every entity has, not
 # something a model ever chooses to write -- always excluded below.
-_ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type"}
+# "component_type" (the definitions table) is rarely present on an
+# ordinary entity -- only one that itself declares a component_type tag
+# -- but "component_instance" (the full per-instance inventory) is, so
+# both are listed (see emc2p.dataflows.etl.load_manifest, task #14's
+# split of the old unified component_type table).
+_ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type", "component_instance"}
 
 
 def schema_exists(dsn: str, schema: str) -> bool:

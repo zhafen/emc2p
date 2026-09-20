@@ -260,7 +260,7 @@ def assert_registries_equal(
     filepath, which differs between the two registrars' own load locations,
     so normalize them to within-file entity paths before comparing.
     """
-    skip = {"entity_id", "component_type", "invalid_field"} | (skip or set())
+    skip = {"entity_id", "component_type", "component_instance", "invalid_field"} | (skip or set())
     eid_df_a = registrar_a.get("entity_id").execute()
     eid_df_b = registrar_b.get("entity_id").execute()
     for comp_type in set(registrar_a.registry.component_types) - skip:
