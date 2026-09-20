@@ -288,9 +288,20 @@ def _make_entity_id_table():
 
 def _make_component_type_table():
     """An (empty) component type DEFINITIONS table -- no component_type
-    tags declared in this minimal fixture."""
-    df = pd.DataFrame(columns=["entity_id", "component_index", "component_type", "modifier", "declares_type_name"])
-    return ibis.memtable(df.astype(str))
+    tags declared in this minimal fixture.
+
+    Explicit ``pd.StringDtype()`` (not the bare ``.astype(str)`` other
+    empty fixtures in this file use) -- unlike those, this table is
+    actually materialized via ``conn.create_table`` inside ``registry()``,
+    and DuckDB rejects a null-typed column, which an empty object-dtype
+    column can silently become depending on the resolved pyarrow/ibis
+    versions (seen failing only on the 3.10 CI job, not locally).
+    """
+    cols = ["entity_id", "component_index", "component_type", "modifier", "declares_type_name"]
+    df = pd.DataFrame(columns=cols)
+    for col in cols:
+        df[col] = df[col].astype(pd.StringDtype())
+    return ibis.memtable(df)
 
 
 def _make_component_instance_table():
