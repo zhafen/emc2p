@@ -41,12 +41,12 @@ def entity_id_df_with_alias():
     return pd.DataFrame([
         {
             "value": "ccc333ccc333",
-            "alias": "core_requirement",
+            "display_alias": "core_requirement",
             "path": "examples/minimal2/minimal2.yaml:core_requirement",
         },
         {
             "value": "aaa111aaa111",
-            "alias": "core_requirement.first_subrequirement",
+            "display_alias": "core_requirement.first_subrequirement",
             "path": "examples/minimal2/minimal2.yaml:core_requirement.first_subrequirement",
         },
     ])

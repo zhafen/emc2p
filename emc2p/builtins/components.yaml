@@ -296,9 +296,11 @@ emc2p_component:
                       TODO: is this field still needed? Meant to be a
                       readable stand-in for the path, but isn't.
                   type: str
-              alias:
+              display_alias:
                   description: >
-                      A readable version of the entity_id.
+                      A readable version of the entity_id. Display-only -- never
+                      unique, never safe to match or join on (use entity_id
+                      itself for that).
                   type: str
     same_as:
         - description: >

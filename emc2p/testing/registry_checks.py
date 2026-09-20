@@ -16,6 +16,12 @@ if TYPE_CHECKING:
 
 # Intrinsic emc2p bookkeeping component types every entity has, not
 # something a model ever chooses to write -- always excluded below.
+# "component_type" (the definitions table) is rarely present on an
+# ordinary entity -- only one that itself declares a component_type tag
+# -- but excluding it here is still correct on the rare occasion it is.
+# The full per-instance inventory (Registry.component_instances) is a
+# derived view, not a stored component table, so it never shows up in
+# `component_types`/this check's own `present` set at all.
 _ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type"}
 
 
@@ -52,7 +58,7 @@ def unexpected_components(registrar: "Registrar", alias: str, expected: set[str]
     """
     row = registrar.safe_view_entities(alias).to_dict()
     present = {
-        key.partition(".")[0] for key in row if key not in ("entity_id", "entity_id.alias")
+        key.partition(".")[0] for key in row if key not in ("entity_id", "entity_id.display_alias")
     }
     return present - expected - _ALWAYS_PRESENT_META_COMPONENTS
 

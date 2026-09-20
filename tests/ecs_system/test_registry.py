@@ -94,8 +94,8 @@ class TestRegistryView:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["iacs", "registry"], "alias": ["iacs", "registry"],
-             "path": ["test:iacs", "test:registry"], "entity_key": ["iacs", "registry"],
+            {"value": ["iacs", "registry"], "display_alias": ["iacs", "registry"],
+             "path": ["test:iacs", "test:registry"], "display_key": ["iacs", "registry"],
              "filepath": ["test", "test"]},
         )
         conn.create_table(
@@ -153,8 +153,8 @@ class TestRegistryViewAliases:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["iacs", "registry"], "alias": ["iacs", "registry"],
-             "path": ["test:iacs", "test:registry"], "entity_key": ["iacs", "registry"],
+            {"value": ["iacs", "registry"], "display_alias": ["iacs", "registry"],
+             "path": ["test:iacs", "test:registry"], "display_key": ["iacs", "registry"],
              "filepath": ["test", "test"]},
         )
         conn.create_table(
@@ -185,9 +185,9 @@ class TestRegistryViewAliases:
             "entity_id",
             {
                 "value": ["e1", "e2", "e3"],
-                "alias": ["shared_a", "shared_b", "unrelated"],
+                "display_alias": ["shared_a", "shared_b", "unrelated"],
                 "path": ["test:shared_a", "test:shared_b", "test:unrelated"],
-                "entity_key": ["shared_a", "shared_b", "unrelated"],
+                "display_key": ["shared_a", "shared_b", "unrelated"],
                 "filepath": ["test", "test", "test"],
             },
         )
@@ -240,8 +240,8 @@ class TestRegistryViewMultipleComponents:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["a", "b", "c"], "alias": ["a", "b", "c"],
-             "path": ["test:a", "test:b", "test:c"], "entity_key": ["a", "b", "c"],
+            {"value": ["a", "b", "c"], "display_alias": ["a", "b", "c"],
+             "path": ["test:a", "test:b", "test:c"], "display_key": ["a", "b", "c"],
              "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
@@ -298,8 +298,8 @@ class TestRegistryViewDoesNotCrossJoinSameTable:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["a"], "alias": ["a"], "path": ["test:a"],
-             "entity_key": ["a"], "filepath": ["test"]},
+            {"value": ["a"], "display_alias": ["a"], "path": ["test:a"],
+             "display_key": ["a"], "filepath": ["test"]},
         )
         conn.create_table(
             "reading",
@@ -336,9 +336,9 @@ class TestRegistryViewCurrent:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+            {"value": ["def1", "e1", "e2"], "display_alias": ["status_reading", "e1", "e2"],
              "path": ["test:status_reading", "test:e1", "test:e2"],
-             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+             "display_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
             "field",
@@ -445,8 +445,8 @@ class TestRegistryViewCurrent:
         already-known schema, the same fallback time_filled_registry uses
         for backfilling values."""
         conn = ibis.duckdb.connect()
-        conn.create_table("entity_id", {"value": ["e3"], "alias": ["e3"], "path": ["test:e3"],
-                                         "entity_key": ["e3"], "filepath": ["test"]})
+        conn.create_table("entity_id", {"value": ["e3"], "display_alias": ["e3"], "path": ["test:e3"],
+                                         "display_key": ["e3"], "filepath": ["test"]})
         conn.create_table("status_reading", {"entity_id": ["e3"], "component_index": [0],
                                               "modifier": pd.array([None], dtype=pd.StringDtype()),
                                               "as_of": ["2024-09-01"], "status": ["new"]})
@@ -477,8 +477,8 @@ class TestRegistryViewCurrent:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"],
-             "entity_key": ["e1"], "filepath": ["test"]},
+            {"value": ["e1"], "display_alias": ["e1"], "path": ["test:e1"],
+             "display_key": ["e1"], "filepath": ["test"]},
         )
         # No "time_dimension" column at all — no field anywhere sets it.
         conn.create_table(
@@ -509,9 +509,9 @@ class TestRegistrySafeView:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1"], "alias": ["status_reading", "e1"],
+            {"value": ["def1", "e1"], "display_alias": ["status_reading", "e1"],
              "path": ["test:status_reading", "test:e1"],
-             "entity_key": ["status_reading", "e1"], "filepath": ["test", "test"]},
+             "display_key": ["status_reading", "e1"], "filepath": ["test", "test"]},
         )
         conn.create_table(
             "field",
@@ -567,9 +567,9 @@ class TestRegistryCurrentValueViaToScalar:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+            {"value": ["def1", "e1", "e2"], "display_alias": ["status_reading", "e1", "e2"],
              "path": ["test:status_reading", "test:e1", "test:e2"],
-             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+             "display_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
             "field",
@@ -691,7 +691,7 @@ class TestRegistryDeclareSchema:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"], "entity_key": ["e1"], "filepath": ["test"]},
+            {"value": ["e1"], "display_alias": ["e1"], "path": ["test:e1"], "display_key": ["e1"], "filepath": ["test"]},
         )
         # An empty (but correctly-columned) "field" table, so
         # _time_dimension_field finds no time_dimension field, not a missing key.
@@ -757,7 +757,7 @@ class TestRegistryDeclareSchema:
         other_conn = ibis.duckdb.connect()
         other_conn.create_table(
             "entity_id",
-            {"value": ["e2"], "alias": ["e2"], "path": ["test:e2"], "entity_key": ["e2"], "filepath": ["test"]},
+            {"value": ["e2"], "display_alias": ["e2"], "path": ["test:e2"], "display_key": ["e2"], "filepath": ["test"]},
         )
         other = Registry(other_conn, {"entity_id": other_conn.table("entity_id")})
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
@@ -787,7 +787,7 @@ class TestRegistryGetEntityId:
                     "ddd444ddd444",
                     "eee555eee555",
                 ],
-                "alias": [
+                "display_alias": [
                     "water_cats",
                     "feeding_system",
                     "feeding_system.feed_cats",
@@ -803,7 +803,7 @@ class TestRegistryGetEntityId:
                     "examples/example.yaml:zzz.dup_alias_one",
                     "examples/example.yaml:zzz.dup_alias_two",
                 ],
-                "entity_key": [
+                "display_key": [
                     "water_cats",
                     "feeding_system",
                     "feed_cats",
@@ -898,6 +898,58 @@ class TestGetterResult:
             GetterResult(table).to_scalar()
 
 
+class TestGetterResultToExplodedYaml:
+    """Unit tests for GetterResult.to_exploded_yaml (task #15): a vertical,
+    YAML-style row-per-block rendering instead of a wide table."""
+
+    def _table(self, rows: list[dict]) -> ibis.Table:
+        conn = ibis.duckdb.connect()
+        if not rows:
+            return conn.create_table("t", schema={"entity_id": "string", "x": "string"})
+        return conn.create_table("t", pd.DataFrame(rows))
+
+    def test_zero_rows_returns_no_rows_message(self):
+        assert GetterResult(self._table([])).to_exploded_yaml() == "(no rows)"
+
+    def test_each_row_gets_its_own_block(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}, {"entity_id": "e2", "x": "b"}])
+        result = GetterResult(table).to_exploded_yaml()
+        assert "row 0:" in result
+        assert "row 1:" in result
+
+    def test_columns_rendered_as_key_value_lines_under_their_row(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}])
+        result = GetterResult(table).to_exploded_yaml()
+        assert result == "row 0:\n  entity_id: e1\n  x: a"
+
+    def test_null_and_bool_values_use_yaml_style_formatting(self):
+        conn = ibis.duckdb.connect()
+        # "note" needs a real value on some row -- an all-null column has
+        # no data for pyarrow to infer a type from, which DuckDB rejects.
+        df = pd.DataFrame([
+            {"entity_id": "e1", "flag": True, "note": None},
+            {"entity_id": "e2", "flag": False, "note": "a real note"},
+        ])
+        table = conn.create_table("t", df)
+        result = GetterResult(table).to_exploded_yaml()
+        assert "flag: true" in result
+        assert "note: null" in result
+
+    def test_limit_truncates_and_notes_remaining_count(self):
+        table = self._table([{"entity_id": f"e{i}", "x": str(i)} for i in range(5)])
+        result = GetterResult(table).to_exploded_yaml(limit=2)
+        assert "row 0:" in result
+        assert "row 1:" in result
+        assert "row 2:" not in result
+        assert "(3 more row(s) not shown)" in result
+
+    def test_no_limit_shows_every_row(self):
+        table = self._table([{"entity_id": f"e{i}", "x": str(i)} for i in range(5)])
+        result = GetterResult(table).to_exploded_yaml()
+        assert "row 4:" in result
+        assert "more row(s) not shown" not in result
+
+
 class TestRegistryViewEntities:
     """Tests for view_entities()/view_entities_current()/safe_view_entities*()."""
 
@@ -912,9 +964,9 @@ class TestRegistryViewEntities:
             "entity_id",
             {
                 "value": ["e1", "e2", "def1"],
-                "alias": ["hero", "villain", "status_reading"],
+                "display_alias": ["hero", "villain", "status_reading"],
                 "path": ["story:hero", "story:villain", "story:status_reading"],
-                "entity_key": ["hero", "villain", "status_reading"],
+                "display_key": ["hero", "villain", "status_reading"],
                 "filepath": ["story"] * 3,
             },
         )
@@ -1015,12 +1067,12 @@ class TestRegistryViewEntities:
             "entity_id",
             {
                 "value": ["bbb222bbb222", "ccc333ccc333"],
-                "alias": ["feeding_system", "feeding_system.feed_cats"],
+                "display_alias": ["feeding_system", "feeding_system.feed_cats"],
                 "path": [
                     "examples/example.yaml:feeding_system",
                     "examples/example.yaml:feeding_system.feed_cats",
                 ],
-                "entity_key": ["feeding_system", "feed_cats"],
+                "display_key": ["feeding_system", "feed_cats"],
                 "filepath": ["examples/example.yaml"] * 2,
             },
         )
@@ -1049,7 +1101,7 @@ class TestViewEntity:
     def _registry(self) -> Registry:
         return Registry.from_component_rows(
             {
-                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                "entity_id": [{"entity_id": "e1", "value": "e1", "display_alias": "widget_a"}],
                 # Bookkeeping rows the registry itself tracks per component
                 # type this entity carries -- not entity data.
                 "component_type": [
@@ -1086,9 +1138,165 @@ class TestViewEntity:
         is left alone rather than silently dropped."""
         registry = Registry.from_component_rows(
             {
-                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                "entity_id": [{"entity_id": "e1", "value": "e1", "display_alias": "widget_a"}],
                 "parent_eid": [{"entity_id": "e1", "parent_eid": "e2"}],
             }
         )
         output = registry.view_entity("widget_a")
         assert "parent_eid: e2" in output
+
+
+class TestComponentInstances:
+    """Tests for Registry.component_instances(): the full per-instance
+    inventory, derived on demand from the registry's own other component
+    tables rather than stored as a components-dict entry of its own."""
+
+    def _registry(self):
+        return Registry.from_component_rows({
+            "entity_id": [
+                {"entity_id": "eid_widget", "value": "eid_widget"},
+            ],
+            "component_type": [
+                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type",
+                 "declares_type_name": "widget", "skip_on_export": True},
+            ],
+            "widget": [
+                {"entity_id": "e1", "component_index": 0, "value": "hello"},
+                {"entity_id": "e2", "component_index": 0, "value": "world"},
+            ],
+        })
+
+    def test_includes_rows_from_every_real_component_table(self):
+        df = self._registry().component_instances().execute()
+        assert set(df["component_type"]) == {"component_type", "widget"}
+
+    def test_excludes_entity_id_itself(self):
+        """entity_id is the spine, not something an entity "has" -- it
+        never appears as a component_type value here."""
+        df = self._registry().component_instances().execute()
+        assert "entity_id" not in set(df["component_type"])
+
+    def test_flag_declared_on_the_type_broadcasts_onto_its_instances(self):
+        """widget's own component_type tag declared skip_on_export:
+        true -- every *instance* of widget (e1, e2) should carry that
+        same flag, not just the tag row itself."""
+        df = self._registry().component_instances().execute()
+        widget_rows = df[df["component_type"] == "widget"]
+        assert len(widget_rows) == 2
+        assert widget_rows["skip_on_export"].all()
+
+    def test_declares_type_name_only_on_the_tag_row(self):
+        df = self._registry().component_instances().execute()
+        widget_rows = df[df["component_type"] == "widget"]
+        assert widget_rows["declares_type_name"].isna().all()
+        tag_row = df[df["component_type"] == "component_type"].iloc[0]
+        assert tag_row["declares_type_name"] == "widget"
+
+    def test_not_counted_as_a_component_type_itself(self):
+        """Never appears in component_types/known_component_types --
+        it's a derived view, not a stored component table."""
+        registry = self._registry()
+        assert "component_instance" not in registry.component_types
+        assert "component_instance" not in registry.known_component_types
+
+    def test_no_component_tables_returns_empty(self):
+        registry = Registry.from_component_rows({})
+        df = registry.component_instances().execute()
+        assert df.empty
+
+    def test_result_is_cached_across_calls(self):
+        registry = self._registry()
+        first = registry.component_instances()
+        second = registry.component_instances()
+        assert first is second
+
+    def test_cache_is_invalidated_by_update(self):
+        """A stale cache would reintroduce exactly the correctness risk
+        this derived-view design exists to avoid."""
+        registry = self._registry()
+        before = registry.component_instances().execute()
+        assert "gadget" not in set(before["component_type"])
+
+        registry.update({"gadget": [{"entity_id": "e3", "component_index": 0, "value": "new"}]})
+
+        after = registry.component_instances().execute()
+        assert "gadget" in set(after["component_type"])
+
+
+class TestComponentTypeOverview:
+    """Tests for Registry.component_type_overview (task #18): one row per
+    declared component type, with description, entity count, and origin."""
+
+    def _registry(self):
+        return Registry.from_component_rows({
+            "entity_id": [
+                {"entity_id": "eid_widget", "value": "eid_widget", "display_alias": "widget", "filepath": "manifest/widgets.yaml"},
+                {"entity_id": "eid_gadget", "value": "eid_gadget", "display_alias": "gadget", "filepath": "builtins.components"},
+                {"entity_id": "e1", "value": "e1", "display_alias": "thing_one", "filepath": "manifest/things.yaml"},
+                {"entity_id": "e2", "value": "e2", "display_alias": "thing_two", "filepath": "manifest/things.yaml"},
+            ],
+            "component_type": [
+                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type", "declares_type_name": "widget"},
+                {"entity_id": "eid_gadget", "component_index": 0, "component_type": "component_type", "declares_type_name": "gadget"},
+            ],
+            "description": [
+                {"entity_id": "eid_widget", "value": "A widget type."},
+            ],
+            # Real "widget" instances -- entity_count is derived from
+            # these (Registry.component_instances), not a fixture of its
+            # own. No entity carries a "gadget" component, so its own
+            # count is expected to come back 0 from having no table at all.
+            "widget": [
+                {"entity_id": "e1", "component_index": 0, "value": "hello"},
+                {"entity_id": "e2", "component_index": 0, "value": "world"},
+            ],
+        })
+
+    def _row(self, df: pd.DataFrame, type_name: str) -> pd.Series:
+        return df[df["component_type.declares_type_name"] == type_name].iloc[0]
+
+    def test_returns_one_row_per_declared_type(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert set(df["component_type.declares_type_name"]) == {"widget", "gadget"}
+
+    def test_includes_description_when_present(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["description.value"] == "A widget type."
+
+    def test_type_without_description_still_gets_a_row(self):
+        """Left join, not `view`'s own inner default -- a type declared
+        without ever being given its own description doesn't vanish."""
+        df = self._registry().component_type_overview().to_pandas()
+        assert pd.isna(self._row(df, "gadget")["description.value"])
+
+    def test_entity_count_counts_distinct_entities_with_an_instance(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["entity_count"] == 2
+
+    def test_entity_count_zero_when_no_instances_yet(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "gadget")["entity_count"] == 0
+
+    def test_origin_is_the_builtins_tag_for_a_builtins_sourced_type(self):
+        """"builtins.components" (no extension -- see
+        load_manifest.raw_strings) identifies a builtins-dir file."""
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "gadget")["origin"] == "builtins"
+
+    def test_origin_is_user_defined_for_a_real_manifest_file(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["origin"] == "user-defined"
+
+    def test_no_component_type_table_returns_empty_result(self):
+        registry = Registry.from_component_rows({
+            "entity_id": [{"entity_id": "e1", "value": "e1"}],
+        })
+        result = registry.component_type_overview()
+        assert result.to_pandas().empty
+
+    def test_composes_with_to_exploded_yaml(self):
+        """The overview is a plain GetterResult -- task #15's display
+        helper works on it with no special-casing."""
+        output = self._registry().component_type_overview().to_exploded_yaml()
+        assert "declares_type_name: widget" in output
+        assert "declares_type_name: gadget" in output

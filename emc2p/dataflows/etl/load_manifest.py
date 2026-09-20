@@ -275,7 +275,7 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
 
     Treating the whole file as one entity, rather than giving each row its
     own entity, avoids two problems a per-row entity would create: every
-    row's entity_key/alias colliding (all equal to the stem), and a
+    row's display_key/display_alias colliding (all equal to the stem), and a
     synthetic ``[row_index]`` path segment coming back as a *real*
     container entity once round-tripped through YAML export/reimport.
 
@@ -288,7 +288,7 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, filepath, path. Schema matches the
+        Columns: entity_id, display_key, filepath, path. Schema matches the
         subset of ``yaml_spine`` that ``entity_id_table`` derives from.
     """
     rows = []
@@ -296,12 +296,12 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
         stem = Path(file_id).stem
         rows.append({
             "entity_id": dhash(file_id),
-            "entity_key": stem,
+            "display_key": stem,
             "filepath": file_id,
             "path": f"{file_id}:{stem}",
         })
     spine_df = pd.DataFrame(
-        rows, columns=["entity_id", "entity_key", "filepath", "path"]
+        rows, columns=["entity_id", "display_key", "filepath", "path"]
     )
     for col in spine_df.columns:
         spine_df[col] = spine_df[col].astype(pd.StringDtype())
@@ -370,8 +370,8 @@ def _flatten_to_pathvalue(data: dict, parent_path: str = "") -> list[tuple[str, 
     recursively.
     """
     result = []
-    for entity_key, entity_value in data.items():
-        entity_path = f"{parent_path}.{entity_key}" if parent_path else entity_key
+    for display_key, entity_value in data.items():
+        entity_path = f"{parent_path}.{display_key}" if parent_path else display_key
         if isinstance(entity_value, list):
             for i, component in enumerate(entity_value):
                 _add_component_pairs(entity_path, i, component, result)
@@ -395,8 +395,8 @@ def _collect_entity_paths(data: dict, parent_path: str = "") -> list[str]:
     ``parent_eid``) reference them by hash.
     """
     result = []
-    for entity_key, entity_value in data.items():
-        entity_path = f"{parent_path}.{entity_key}" if parent_path else entity_key
+    for display_key, entity_value in data.items():
+        entity_path = f"{parent_path}.{display_key}" if parent_path else display_key
         if isinstance(entity_value, list):
             result.append(entity_path)
         elif isinstance(entity_value, dict):
@@ -412,7 +412,7 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, entity_path, filepath. Schema matches
+        Columns: entity_id, display_key, entity_path, filepath. Schema matches
         the corresponding subset of ``keyvalue_store`` columns, so it's a
         drop-in replacement that also covers entities with no components.
     """
@@ -421,12 +421,12 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
         for entity_path in _collect_entity_paths(entities):
             rows.append({
                 "entity_id": dhash(f"{file_id}:{entity_path}"),
-                "entity_key": entity_path.rsplit(".", 1)[-1],
+                "display_key": entity_path.rsplit(".", 1)[-1],
                 "entity_path": f"{file_id}:{entity_path}",
                 "filepath": file_id,
             })
     spine_df = pd.DataFrame(
-        rows, columns=["entity_id", "entity_key", "entity_path", "filepath"]
+        rows, columns=["entity_id", "display_key", "entity_path", "filepath"]
     )
     for col in spine_df.columns:
         spine_df[col] = spine_df[col].astype(pd.StringDtype())
@@ -447,7 +447,7 @@ def pathvalue_pairs(raw_entity_first_data: dict) -> ir.Table:
     Parameters
     ----------
     raw_entity_first_data : dict
-        Nested dict of the form {file_id: {entity_key: entity_data}}.
+        Nested dict of the form {file_id: {display_key: entity_data}}.
 
     Returns
     -------
@@ -494,7 +494,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, entity_path, filepath,
+        Columns: entity_id, display_key, entity_path, filepath,
         component_index, component_type, modifier, spine_path, field, value.
     """
     t = pathvalue_pairs.filter(pathvalue_pairs.path.re_search(_PATH_PATTERN))
@@ -512,7 +512,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
     )
     t = t.mutate(
         entity_id=t.entity_path.hexdigest("sha256").substr(0, 12),
-        entity_key=t.entity_path.re_extract(r"([^:.]+)$", 1),
+        display_key=t.entity_path.re_extract(r"([^:.]+)$", 1),
         filepath=t.entity_path.re_extract(r"^([^:]+):", 1).nullif(""),
     )
     t = t.mutate(
@@ -526,7 +526,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
         field=ibis.ifelse(t["field"] == "", ibis.literal("value"), t["field"])
     )
     return t.select(
-        "entity_id", "entity_key", "entity_path", "filepath",
+        "entity_id", "display_key", "entity_path", "filepath",
         "component_index", "component_type", "modifier",
         "spine_path", "field", "value",
     )
@@ -542,77 +542,85 @@ def entity_id_table(yaml_spine: ir.Table, csv_spine: ir.Table = None) -> ir.Tabl
     Returns
     -------
     ir.Table
-        Columns: value, path, alias, entity_key, filepath.
+        Columns: value, path, display_alias, display_key, filepath.
         ``value`` is the entity hash (the entity_id); ``path`` is the full
-        entity_path; ``alias`` is the human-readable display ID (last two
-        dot-segments of the entity path, or just entity_key for top-level).
+        entity_path; ``display_alias`` is the human-readable display ID
+        (last two dot-segments of the entity path, or just display_key for
+        top-level). Display-only -- never unique, never safe to match or
+        join on (use entity_id/value itself for that).
     """
     yaml_entities = yaml_spine.select(
-        "entity_id", "entity_key", "entity_path", "filepath"
+        "entity_id", "display_key", "entity_path", "filepath"
     ).distinct().to_pandas()
     yaml_entities = yaml_entities.rename(columns={"entity_id": "value", "entity_path": "path"})
 
-    def compute_alias(row):
+    def compute_display_alias(row):
         entity_path = row["path"]
-        entity_key = row["entity_key"]
+        display_key = row["display_key"]
         sep = entity_path.find(":")
         name_part = entity_path[sep + 1:] if sep != -1 else entity_path
         parts = name_part.split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else entity_key
+        return ".".join(parts[-2:]) if len(parts) >= 2 else display_key
 
-    yaml_entities["alias"] = yaml_entities.apply(compute_alias, axis=1)
-    df = yaml_entities[["value", "path", "alias", "entity_key", "filepath"]]
+    yaml_entities["display_alias"] = yaml_entities.apply(compute_display_alias, axis=1)
+    df = yaml_entities[["value", "path", "display_alias", "display_key", "filepath"]]
 
     if csv_spine is not None:
         csv_df = csv_spine.to_pandas()
-        csv_entity_df = csv_df[["entity_id", "entity_key", "filepath", "path"]].drop_duplicates()
+        csv_entity_df = csv_df[["entity_id", "display_key", "filepath", "path"]].drop_duplicates()
         csv_entity_df = csv_entity_df.rename(columns={"entity_id": "value"})
-        csv_entity_df["alias"] = csv_entity_df["entity_key"]
-        csv_entity_df = csv_entity_df[["value", "path", "alias", "entity_key", "filepath"]]
+        csv_entity_df["display_alias"] = csv_entity_df["display_key"]
+        csv_entity_df = csv_entity_df[["value", "path", "display_alias", "display_key", "filepath"]]
         df = pd.concat([df, csv_entity_df], ignore_index=True)
 
-    df = df[["value", "path", "alias", "entity_key", "filepath"]]
-    for col in ("value", "path", "alias", "entity_key"):
+    df = df[["value", "path", "display_alias", "display_key", "filepath"]]
+    for col in ("value", "path", "display_alias", "display_key"):
         df[col] = df[col].astype(pd.StringDtype())
     df["filepath"] = df["filepath"].astype(pd.StringDtype())
     return ibis.memtable(df)
 
 
 
-def component_type_table(
-    keyvalue_store: ir.Table,
-    csv_component_tables: dict[str, ir.Table] = None,
-) -> ir.Table:
-    """Build one row per component instance, including component_type's own
-    declared boolean flags (``derived``, ``skip_on_export``,
-    ``implicit_parent``, as of this writing).
+def component_type_table(keyvalue_store: ir.Table) -> ir.Table:
+    """Build the component type DEFINITIONS table: one row per declared
+    ``component_type`` tag (a ``- component_type: {...}`` entry), each
+    carrying the flags it declares about itself (``derived``,
+    ``skip_on_export``, ``implicit_parent``, as of this writing) and
+    ``declares_type_name`` -- the human-readable name of the type it
+    declares (the owning entity's own ``display_key``).
 
-    Reads explicit ``component_type`` component entries from the keyvalue_store to
-    populate those flag columns on the metadata table. Which flags exist is
-    itself schema-derived -- whatever bool-typed ``- field: {...}`` entries
-    the ``component_type`` schema entity declares on itself in builtins.yaml
-    (always loaded, see ``_BUILTINS_DIRS``) -- rather than a hardcoded list,
-    so a newly declared flag is picked up automatically instead of silently
-    going missing until this function is also updated by hand.
+    Which flags exist is itself schema-derived -- whatever bool-typed
+    ``- field: {...}`` entries the ``component_type`` schema entity
+    declares on itself in builtins.yaml (always loaded, see
+    ``_BUILTINS_DIRS``) -- rather than a hardcoded list, so a newly
+    declared flag is picked up automatically instead of silently going
+    missing until this function is also updated by hand.
 
-    CSV-derived metadata comes from ``csv_component_tables`` (one row per CSV
-    row, i.e. one row per ``"{stem}_comp"`` component instance) rather than
-    ``csv_spine`` (one row per *file*/entity) — a whole CSV file is a single
-    entity with many component instances attached, so the two are
-    different granularities.
+    Deliberately narrow -- just the tag rows and what they themselves
+    declare, not a general per-instance inventory across every component
+    type in the registry (see ``Registry.component_instances``, which
+    derives that on demand from the registry's own already-materialized
+    component tables plus this table's own flags/declares_type_name,
+    rather than needing it precomputed and stored here). A consumer that
+    wants "every declared component type" (e.g.
+    ``validate_components._declared_component_types``) reads this table
+    directly; before task #14 split it out, that question was answered by
+    re-deriving it from a full per-instance inventory, where every entity
+    with ANY component at all -- not just ones that actually declared a
+    ``component_type`` tag -- leaked in.
 
     Returns
     -------
     ir.Table
         Columns: entity_id, component_index, component_type, modifier,
-        plus one column per declared component_type flag.
+        declares_type_name, plus one column per declared component_type flag.
     """
     df = keyvalue_store.execute()
 
-    entity_keys = (
-        df[["entity_id", "entity_key"]]
+    display_keys = (
+        df[["entity_id", "display_key"]]
         .drop_duplicates(subset=["entity_id"])
-        .set_index("entity_id")["entity_key"]
+        .set_index("entity_id")["display_key"]
         .to_dict()
     )
 
@@ -621,7 +629,7 @@ def component_type_table(
     # on itself (builtins.yaml), not a hardcoded list -- keyed by
     # (entity_id, component_index) rather than component_index alone in
     # case more than one loaded entity somehow resolves to that same key.
-    type_schema_eids = {eid for eid, key in entity_keys.items() if key == "component_type"}
+    type_schema_eids = {eid for eid, key in display_keys.items() if key == "component_type"}
     field_rows = df[(df["component_type"] == "field") & df["entity_id"].isin(type_schema_eids)]
     flag_value_by_key = field_rows[field_rows["field"] == "value"].set_index(
         ["entity_id", "component_index"]
@@ -634,61 +642,35 @@ def component_type_table(
     )
 
     ct_data = df[df["component_type"] == "component_type"]
-    flagged_sets: dict[str, set[str]] = {flag: set() for flag in flag_names}
-    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the flags
-    # a given "- component_type: {...}" tag instance declares on itself.
-    # Needed so that a tag's own meta row (below) can be set from what THAT
-    # tag actually declared, instead of the isin() broadcast further down --
-    # which answers "is this row an instance of a type in {derived,
-    # skip,implicit_parent}_set", a question a tag-declaration row itself
-    # would also match whenever the literal type name "component_type" is
-    # itself a member of one of these sets (e.g. component_type's own
-    # skip_on_export: true declaration), incorrectly carrying that flag
-    # onto every OTHER entity's own component_type tag row too.
+    rows = ct_data[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
+    rows["declares_type_name"] = rows["entity_id"].map(display_keys)
+
+    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the
+    # flags a given "- component_type: {...}" tag instance declares about
+    # ITSELF -- e.g. widget's own `skip_on_export: true`, not whether
+    # "component_type" (the literal type every row here is an instance
+    # of) is itself flagged.
     own_flags: dict[tuple, dict[str, bool]] = {}
     for _, row in ct_data.iterrows():
         eid = str(row["entity_id"])
         cidx = row["component_index"]
         field = str(row["field"])
-        val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
-        if field in flagged_sets:
-            own_flags.setdefault((eid, cidx), {})[field] = val
-        type_name = entity_keys.get(eid, "")
-        if not type_name:
+        if field not in flag_names:
             continue
-        if field in flagged_sets and val:
-            flagged_sets[field].add(type_name)
+        val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
+        own_flags.setdefault((eid, cidx), {})[field] = val
 
-    meta_df = df[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
     for flag in flag_names:
-        meta_df[flag] = meta_df["component_type"].isin(flagged_sets[flag])
-
-    is_tag_row = meta_df["component_type"] == "component_type"
-    for flag in flag_names:
-        meta_df.loc[is_tag_row, flag] = meta_df.loc[is_tag_row].apply(
+        rows[flag] = rows.apply(
             lambda r, _flag=flag: own_flags.get(
                 (str(r["entity_id"]), r["component_index"]), {}
             ).get(_flag, False),
             axis=1,
         )
 
-    meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
-    yaml_ct = ibis.memtable(meta_df)
-
-    if not csv_component_tables:
-        return yaml_ct
-
-    csv_rows = []
-    for comp_type, table in csv_component_tables.items():
-        cdf = table.to_pandas()[["entity_id", "component_index", "modifier"]].copy()
-        cdf["component_type"] = comp_type
-        csv_rows.append(cdf)
-    csv_df = pd.concat(csv_rows, ignore_index=True)
-    for flag in flag_names:
-        csv_df[flag] = False
-    csv_df["modifier"] = csv_df["modifier"].astype(pd.StringDtype())
-    csv_df["component_type"] = csv_df["component_type"].astype(pd.StringDtype())
-    return ibis.union(yaml_ct, ibis.memtable(csv_df))
+    rows["modifier"] = rows["modifier"].astype(pd.StringDtype())
+    rows["declares_type_name"] = rows["declares_type_name"].astype(pd.StringDtype())
+    return ibis.memtable(rows)
 
 
 def component_tables(
@@ -755,9 +737,14 @@ def registry(
     Parameters
     ----------
     entity_id_table : ir.Table
-        One row per entity (hash, path, value, alias, entity_key, filepath).
+        One row per entity (hash, path, value, display_alias, display_key, filepath).
     component_type_table : ir.Table
-        One row per component instance (entity_id, component_index, component_type, modifier).
+        The component type DEFINITIONS table: one row per declared
+        component_type tag (entity_id, component_index, component_type,
+        modifier, declares_type_name, plus flag columns). The full
+        per-instance inventory across every component type is *not*
+        stored here -- see ``Registry.component_instances``, which
+        derives it on demand instead.
     component_tables : dict[str, ir.Table]
         Per-component-type data tables.
 

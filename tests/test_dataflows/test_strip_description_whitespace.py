@@ -14,7 +14,7 @@ def _make_reg_with_field_metadata(comp_type: str, field_name: str, field_entity_
             {"entity_id": field_entity_id, "value": field_name, "type": "description"},
         ],
         "entity_id": [
-            {"value": field_entity_id, "entity_key": comp_type},
+            {"value": field_entity_id, "display_key": comp_type},
         ],
         comp_type: [
             {"entity_id": "e1", field_name: "  padded  ", "other": "  untouched  "},

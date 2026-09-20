@@ -280,18 +280,27 @@ class TestLoadManifestAcceptsStrings:
 
 def _make_entity_id_table():
     df = pd.DataFrame([{
-        "value": "abc", "path": "test:e", "alias": "e",
-        "entity_key": "e", "filepath": "test",
+        "value": "abc", "path": "test:e", "display_alias": "e",
+        "display_key": "e", "filepath": "test",
     }])
     return ibis.memtable(df)
 
 
 def _make_component_type_table():
-    df = pd.DataFrame([{
-        "entity_id": "abc", "component_index": 0,
-        "component_type": "description", "modifier": pd.NA,
-    }])
-    df["modifier"] = df["modifier"].astype(pd.StringDtype())
+    """An (empty) component type DEFINITIONS table -- no component_type
+    tags declared in this minimal fixture.
+
+    Explicit ``pd.StringDtype()`` (not the bare ``.astype(str)`` other
+    empty fixtures in this file use) -- unlike those, this table is
+    actually materialized via ``conn.create_table`` inside ``registry()``,
+    and DuckDB rejects a null-typed column, which an empty object-dtype
+    column can silently become depending on the resolved pyarrow/ibis
+    versions (seen failing only on the 3.10 CI job, not locally).
+    """
+    cols = ["entity_id", "component_index", "component_type", "modifier", "declares_type_name"]
+    df = pd.DataFrame(columns=cols)
+    for col in cols:
+        df[col] = df[col].astype(pd.StringDtype())
     return ibis.memtable(df)
 
 
@@ -314,6 +323,17 @@ class TestRegistry:
         result = load_manifest.registry(eid, ct, comps)
         assert "description" in result.component_types
         assert "task" in result.component_types
+
+    def test_registry_has_component_type_but_not_component_instance(self):
+        """component_type (the definitions table) is a real, stored
+        component table; the full-inventory table is a derived view
+        (Registry.component_instances) rather than one more entry here."""
+        eid = _make_entity_id_table()
+        ct = _make_component_type_table()
+        comps = {"description": ibis.memtable(pd.DataFrame([{"entity_id": "e1", "value": "Hello"}]))}
+        result = load_manifest.registry(eid, ct, comps)
+        assert "component_type" in result.component_types
+        assert "component_instance" not in result.component_types
 
 
 # pathvalue_pairs
@@ -438,6 +458,60 @@ def _pvp(pairs: list[tuple[str, str]]) -> ibis.Table:
     return ibis.memtable(pd.DataFrame(pairs, columns=["path", "value"]))
 
 
+class TestComponentTypeTable:
+    """Tests for component_type_table: the component type DEFINITIONS
+    table -- one row per declared ``component_type`` tag, with its own
+    flags and declares_type_name. Deliberately narrow (task #14) -- the
+    full per-instance inventory across every component type is a derived
+    view on the Registry side (``Registry.component_instances``), not
+    something this function also produces.
+
+    ``_manifest`` is a small, self-contained entity-first dict declaring
+    its own "component_type" schema entity (mirroring builtins.yaml's
+    real one) rather than pulling in the real builtins directory, so the
+    fixture stays minimal and legible.
+    """
+
+    def _manifest(self) -> dict:
+        return {
+            "component_type": [
+                {"field": {"skip_on_export": {"type": "bool"}}},
+            ],
+            "widget": [
+                {"component_type": {"skip_on_export": True}},
+            ],
+            "thing": [
+                {"widget": "hello"},
+            ],
+        }
+
+    def _defs(self) -> pd.DataFrame:
+        wrapped = {_FILE_ID: self._manifest()}
+        pvp = load_manifest.pathvalue_pairs(wrapped)
+        kvs = load_manifest.keyvalue_store(pvp)
+        return load_manifest.component_type_table(kvs).to_pandas()
+
+    def test_is_definitions_only(self):
+        """Only the component_type tag row -- not thing's own `widget`
+        instance row."""
+        defs_df = self._defs()
+        assert set(defs_df["component_type"]) == {"component_type"}
+        assert len(defs_df) == 1
+
+    def test_declares_type_name(self):
+        """declares_type_name names the type the tag row declares --
+        here, "widget" (the owning entity's own display_key), not
+        "component_type" (its own component_type column, the same for
+        every tag row regardless of which type it declares)."""
+        defs_df = self._defs()
+        assert list(defs_df["declares_type_name"]) == ["widget"]
+
+    def test_own_flag_is_what_the_tag_itself_declared(self):
+        """widget's own tag declared skip_on_export: true about itself."""
+        defs_df = self._defs()
+        assert bool(defs_df.iloc[0]["skip_on_export"]) is True
+
+
 # component_tables
 
 class TestComponentTables:
@@ -448,8 +522,8 @@ class TestComponentTables:
         kvs = load_manifest.keyvalue_store(pvp)
         return load_manifest.component_tables(kvs)
 
-    def _eid(self, entity_key: str) -> str:
-        return dhash(f"{_FILE_ID}:{entity_key}")
+    def _eid(self, display_key: str) -> str:
+        return dhash(f"{_FILE_ID}:{display_key}")
 
     def test_returns_dict_of_ibis_tables(self):
         data = {"entity": [{"description": "A thing."}]}
@@ -674,7 +748,7 @@ class TestCsvSpine:
     def test_has_required_columns(self, tmp_path):
         raw = self._make_raw(tmp_path, "task.csv", "name\nalpha\n")
         result = load_manifest.csv_spine(raw)
-        for col in ["entity_id", "entity_key", "filepath", "path"]:
+        for col in ["entity_id", "display_key", "filepath", "path"]:
             assert col in result.columns
 
     def test_one_row_per_file_not_per_csv_row(self, tmp_path):
@@ -692,11 +766,11 @@ class TestCsvSpine:
         expected_id = dhash(file_id)
         assert df.iloc[0]["entity_id"] == expected_id
 
-    def test_entity_key_is_stem(self, tmp_path):
+    def test_display_key_is_stem(self, tmp_path):
         raw = self._make_raw(tmp_path, "requirement.csv", "text\nReq A\n")
         result = load_manifest.csv_spine(raw)
         df = result.to_pandas()
-        assert df.iloc[0]["entity_key"] == "requirement"
+        assert df.iloc[0]["display_key"] == "requirement"
 
     def test_path_format(self, tmp_path):
         csv_file = tmp_path / "task.csv"

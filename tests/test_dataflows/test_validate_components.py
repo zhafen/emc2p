@@ -7,7 +7,7 @@ import emc2p.dataflows.validation.validate_components as validate_components
 
 
 _EMPTY_FIELD_COLS = ["entity_id", "component_index", "value", "type", "nullable", "default", "range"]
-_EMPTY_ENTITY_ID_COLS = ["value", "entity_key", "path", "alias"]
+_EMPTY_ENTITY_ID_COLS = ["value", "display_key", "path", "display_alias"]
 
 
 def _make_entity_id_table(rows: list[dict]) -> ibis.Table:
@@ -35,8 +35,8 @@ def _call(components, field_rows, entity_id_rows):
 
 class TestValidationResults:
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _field_row(self, entity_id, field_name, field_type=None, nullable=None, default=None, field_range=None):
         return {
@@ -223,7 +223,7 @@ class TestValidationResults:
         assert len(df) == 2
         assert set(df["error_type"]) == {"nullable", "range"}
 
-    def test_unrecognized_entity_key_ignored(self):
+    def test_unrecognized_display_key_ignored(self):
         """Components without matching field definitions are passed through."""
         components = {"orphan": _make_component_table([{"entity_id": "e1", "component_index": 0, "value": "x"}])}
         field_rows = [self._field_row("eid_other", "value", field_type="str")]
@@ -267,8 +267,8 @@ class TestValidationResultsDeclaredSchemas:
     """Tests for the declared_schemas output: schemas for component types
     declared via a `component_type` tag but with no data rows this batch."""
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _field_row(self, entity_id, field_name, field_type=None, nullable=None, default=None, field_range=None):
         return {
@@ -281,8 +281,11 @@ class TestValidationResultsDeclaredSchemas:
             "range": field_range,
         }
 
-    def _component_type_row(self, entity_id):
-        return {"entity_id": entity_id, "component_index": 0, "value": None}
+    def _component_type_row(self, entity_id, declares_type_name):
+        return {
+            "entity_id": entity_id, "component_index": 0, "value": None,
+            "declares_type_name": declares_type_name,
+        }
 
     def _call(self, components, field_rows, entity_id_rows):
         validated_field = _make_field_table(field_rows)
@@ -296,7 +299,7 @@ class TestValidationResultsDeclaredSchemas:
         Not the generic fallback a fieldless tag type gets.
         """
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_widget")]),
+            "component_type": _make_component_table([self._component_type_row("eid_widget", "widget")]),
         }
         field_rows = [
             self._field_row("eid_widget", "width", field_type="float"),
@@ -317,7 +320,7 @@ class TestValidationResultsDeclaredSchemas:
         Matching what the loader gives such a type when it does have rows.
         """
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_marker")]),
+            "component_type": _make_component_table([self._component_type_row("eid_marker", "marker")]),
         }
         entity_id_rows = [self._entity_id_row("eid_marker", "marker")]
         _, _, declared_schemas = self._call(components, [], entity_id_rows)
@@ -328,7 +331,7 @@ class TestValidationResultsDeclaredSchemas:
         """A component type that already has rows this batch is skipped --
         declared_schemas is only for types with no data of their own yet."""
         components = {
-            "component_type": _make_component_table([self._component_type_row("eid_marker")]),
+            "component_type": _make_component_table([self._component_type_row("eid_marker", "marker")]),
             "marker": _make_component_table([{"entity_id": "e1", "component_index": 0, "value": None}]),
         }
         entity_id_rows = [self._entity_id_row("eid_marker", "marker")]
@@ -343,14 +346,57 @@ class TestValidationResultsDeclaredSchemas:
         assert declared_schemas == {}
 
 
+class TestDeclaredComponentTypes:
+    """Tests for _declared_component_types, which reads directly from the
+    component_type (definitions) table's own declares_type_name column
+    (task #14) -- regression coverage for the bug this replaced, where
+    every entity with ANY component at all (not just ones that actually
+    declared a component_type tag) leaked into known_component_types."""
+
+    def test_reads_declares_type_name_from_tag_rows(self):
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "declares_type_name": "widget"},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == {"widget"}
+
+    def test_a_row_with_no_declares_type_name_does_not_leak_in(self):
+        """A row lacking declares_type_name (e.g. one that isn't actually
+        a component_type tag) contributes nothing -- this is exactly the
+        shape the old unfiltered-join bug used to produce for every
+        entity that merely *used* a declared type, not declared one."""
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "declares_type_name": "widget"},
+                {"entity_id": "eid_thing", "component_index": 0, "declares_type_name": None},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == {"widget"}
+
+    def test_no_component_type_key_returns_empty_set(self):
+        assert validate_components._declared_component_types({}) == set()
+
+    def test_missing_declares_type_name_column_returns_empty_set(self):
+        """A component_type table built without the declares_type_name
+        column (e.g. an older/hand-built fixture) degrades to no
+        declared types, rather than raising."""
+        components = {
+            "component_type": _make_component_table([
+                {"entity_id": "eid_widget", "component_index": 0, "value": None},
+            ]),
+        }
+        assert validate_components._declared_component_types(components) == set()
+
+
 class TestFieldValidationResults:
     """Tests for field_validation_results, which validates ((field))
     against its own self-referential schema, before field is used to
     validate every other component.
     """
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _meta_row(self, entity_id, attr_name, field_type=None, nullable=None, default=None, field_range=None, **attrs):
         """A field row defining one of field's own meta-attributes (attached to the entity that defines "field")."""
@@ -385,7 +431,7 @@ class TestFieldValidationResults:
     def test_no_self_schema_passes_through_unchanged(self):
         """When field has no schema defined for itself, field passes through as-is."""
         field_rows = [self._meta_row("eid_other", "name", field_type="str")]
-        entity_id_rows = [self._entity_id_row("eid_other", "other")]  # entity_key != "field"
+        entity_id_rows = [self._entity_id_row("eid_other", "other")]  # display_key != "field"
         validated_field, invalid = self._call(field_rows, entity_id_rows)
         df = validated_field.execute()
         assert len(df) == 1

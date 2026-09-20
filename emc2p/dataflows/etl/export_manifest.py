@@ -39,7 +39,7 @@ entity_first_data serialises all component tables to {entity_id: [(idx, entry)]}
 (flat, keyed by entity_id).  condensed_entity_first_data collapses single-field
 component dicts from ``{type: {field: value}}`` to ``{type: value}``.
 hierarchical_entity_first_data uses the entity_hierarchy to nest child entities
-under their parents and produces the {filepath: {entity_key: ...}} structure
+under their parents and produces the {filepath: {display_key: ...}} structure
 written to YAML.
 """
 
@@ -218,11 +218,11 @@ def non_hierarchy_parents(
 
     parent_df = parent_df[parent_df["entity_id"].isin(user_entity_ids)].copy()
 
-    # Build entity_id → entity_key lookup for reconstructing parent value
+    # Build entity_id → display_key lookup for reconstructing parent value
     spine_df = entity_id.to_pandas()
     id_to_key = (
         spine_df.drop_duplicates("value")
-        .set_index("value")["entity_key"]
+        .set_index("value")["display_key"]
         .to_dict()
     )
 
@@ -500,7 +500,7 @@ def hierarchical_entity_first_data(
     Returns
     -------
     dict
-        ``{filepath: {entity_key: ...}}`` where nested entities are dicts
+        ``{filepath: {display_key: ...}}`` where nested entities are dicts
         containing a ``"data"`` key (own components) and child-entity keys.
     """
     spine_df = entity_id.to_pandas()
@@ -539,16 +539,16 @@ def hierarchical_entity_first_data(
 
         for eid, path_in_file in entity_list:
             parts = path_in_file.split(".")
-            entity_key = parts[-1]
+            display_key = parts[-1]
             comps = entity_components.get(eid, [])
 
             if len(parts) == 1:
-                hierarchical[entity_key] = comps
-                node_of[path_in_file] = hierarchical[entity_key]
+                hierarchical[display_key] = comps
+                node_of[path_in_file] = hierarchical[display_key]
             else:
                 parent_node = _get_or_create_node(parts[:-1], hierarchical, node_of)
-                parent_node[entity_key] = comps
-                node_of[path_in_file] = parent_node[entity_key]
+                parent_node[display_key] = comps
+                node_of[path_in_file] = parent_node[display_key]
 
         result[filepath] = hierarchical
 
