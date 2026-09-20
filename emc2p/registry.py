@@ -13,6 +13,29 @@ from .utils import candidate_entity_ids
 _TABLE_META_COLS = {"entity_id", "component_index", "modifier"}
 
 
+_KNOWN_SOURCE_EXTENSIONS = (".yaml", ".yml", ".py", ".csv")
+
+
+def _origin_from_filepath(filepath) -> str:
+    """"builtins" (or a downstream project's own registered tag, e.g.
+    "iacs") for a builtins-sourced entity, else "user-defined" for one
+    from a real on-disk manifest file.
+
+    A builtins-dir file is identified by ``load_manifest.raw_strings`` as
+    ``"{tag}.{stem}"`` -- no file extension, unlike every real source
+    file's own relative-path identifier (``"examples/foo.yaml"``,
+    ``"manifest/requirements.yaml"``, ...). Reading the tag straight off
+    that naming convention avoids importing ``load_manifest`` here, which
+    would be circular (it already imports ``Registry`` from this module).
+    """
+    if filepath is None or (isinstance(filepath, float) and pd.isna(filepath)):
+        return "user-defined"
+    filepath = str(filepath)
+    if filepath.endswith(_KNOWN_SOURCE_EXTENSIONS):
+        return "user-defined"
+    return filepath.split(".", 1)[0]
+
+
 def _format_field_value(value) -> str:
     """Render a field value the way a caller reading this as plain text
     expects.
@@ -83,6 +106,39 @@ class GetterResult:
         if len(data_cols) != 1:
             raise ValueError(f"Expected exactly one data column, got {data_cols}.")
         return row[data_cols[0]]
+
+    def to_exploded_yaml(self, limit: int | None = None) -> str:
+        """Render the result as a vertical, YAML-style list -- one block
+        per row, keyed "row 0", "row 1", ... -- instead of a wide table.
+
+        A wide markdown/pandas table forces a reader (human or model) to
+        scan across many columns to read a single row, and wraps
+        unreadably in a narrow terminal/chat context once there are more
+        than a handful of columns. Exploding each row into its own
+        vertical `key: value` block avoids both -- every row is
+        self-contained and skimmable top-to-bottom, the same shape
+        `Registry.view_entity`'s own per-entity markdown output already
+        uses, just applied to an arbitrary result instead of one
+        entity's own data.
+
+        Args:
+            limit: Show at most this many rows, with a trailing note of
+                how many more weren't shown. None (default) shows every
+                row.
+        """
+        df = self.to_pandas()
+        if df.empty:
+            return "(no rows)"
+        shown = df if limit is None else df.head(limit)
+        blocks = []
+        for i, (_, row) in enumerate(shown.iterrows()):
+            lines = [f"row {i}:"]
+            lines += [f"  {col}: {_format_field_value(val)}" for col, val in row.items()]
+            blocks.append("\n".join(lines))
+        result = "\n".join(blocks)
+        if limit is not None and len(df) > limit:
+            result += f"\n... ({len(df) - limit} more row(s) not shown)"
+        return result
 
 
 class Registry:
@@ -792,6 +848,79 @@ class Registry:
             "All component types currently recorded, one section per type:\n\n"
             + "\n\n".join(sections)
         )
+
+    def component_type_overview(self) -> GetterResult:
+        """Return one row per declared component type: its name
+        (``declares_type_name``), description (if it has one), how many
+        distinct entities carry an instance of it, and its origin (which
+        builtins tag defined it, e.g. ``"builtins"``, or ``"user-defined"``
+        for one declared in a real manifest file).
+
+        Built entirely from `view`'s own join engine (anchored on
+        ``component_type`` -- the type definitions table -- by putting it
+        first in the field list) left-joined against ``description`` and
+        ``entity_id``'s own ``display_alias``/``filepath``, rather than any
+        bespoke joining logic of its own. Left, not `view`'s own inner
+        default, so a type declared without ever being given its own
+        description still gets a row here with a null description,
+        instead of silently vanishing.
+
+        Entity counts come from ``component_instance`` (the full
+        per-instance inventory ``component_type`` used to double as,
+        before task #14 split it out): grouped by its own
+        ``component_type`` column (the declared type's name) and counted
+        by distinct ``entity_id``, not raw row count -- an entity with
+        multiple instances of the same type (e.g. SCD history) should
+        still count once.
+
+        Returns
+        -------
+        GetterResult
+            Columns: entity_id, component_type.declares_type_name,
+            entity_id.display_alias, entity_id.filepath,
+            description.value, entity_count, origin.
+        """
+        empty_schema = {
+            "entity_id": "string",
+            "component_type.declares_type_name": "string",
+            "entity_id.display_alias": "string",
+            "entity_id.filepath": "string",
+            "description.value": "string",
+            "entity_count": "int64",
+            "origin": "string",
+        }
+        try:
+            joined = self._view(
+                [
+                    "component_type.declares_type_name",
+                    "entity_id.display_alias",
+                    "entity_id.filepath",
+                    "description.value",
+                ],
+                self._table_or_declared,
+                how="left",
+            )
+            df = joined.execute()
+        except KeyError:
+            # component_type/entity_id/description isn't known to this
+            # registry at all (e.g. a minimal hand-built test registry) --
+            # nothing to report, the same way `safe_view` degrades.
+            df = pd.DataFrame()
+        if df.empty:
+            return GetterResult(ibis.memtable([], schema=empty_schema))
+
+        if "component_instance" in self._components:
+            instance_df = self._components["component_instance"].execute()
+            entity_counts = instance_df.groupby("component_type")["entity_id"].nunique()
+        else:
+            entity_counts = pd.Series(dtype="int64")
+        df["entity_count"] = (
+            df["component_type.declares_type_name"].map(entity_counts).fillna(0).astype("int64")
+        )
+
+        df["origin"] = df["entity_id.filepath"].apply(_origin_from_filepath)
+
+        return GetterResult(ibis.memtable(df))
 
     def get_entity_id(self, entity_ref: str) -> str | None:
         """Resolve `entity_ref` to its canonical entity_id hash.

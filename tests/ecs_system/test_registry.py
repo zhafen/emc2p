@@ -898,6 +898,58 @@ class TestGetterResult:
             GetterResult(table).to_scalar()
 
 
+class TestGetterResultToExplodedYaml:
+    """Unit tests for GetterResult.to_exploded_yaml (task #15): a vertical,
+    YAML-style row-per-block rendering instead of a wide table."""
+
+    def _table(self, rows: list[dict]) -> ibis.Table:
+        conn = ibis.duckdb.connect()
+        if not rows:
+            return conn.create_table("t", schema={"entity_id": "string", "x": "string"})
+        return conn.create_table("t", pd.DataFrame(rows))
+
+    def test_zero_rows_returns_no_rows_message(self):
+        assert GetterResult(self._table([])).to_exploded_yaml() == "(no rows)"
+
+    def test_each_row_gets_its_own_block(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}, {"entity_id": "e2", "x": "b"}])
+        result = GetterResult(table).to_exploded_yaml()
+        assert "row 0:" in result
+        assert "row 1:" in result
+
+    def test_columns_rendered_as_key_value_lines_under_their_row(self):
+        table = self._table([{"entity_id": "e1", "x": "a"}])
+        result = GetterResult(table).to_exploded_yaml()
+        assert result == "row 0:\n  entity_id: e1\n  x: a"
+
+    def test_null_and_bool_values_use_yaml_style_formatting(self):
+        conn = ibis.duckdb.connect()
+        # "note" needs a real value on some row -- an all-null column has
+        # no data for pyarrow to infer a type from, which DuckDB rejects.
+        df = pd.DataFrame([
+            {"entity_id": "e1", "flag": True, "note": None},
+            {"entity_id": "e2", "flag": False, "note": "a real note"},
+        ])
+        table = conn.create_table("t", df)
+        result = GetterResult(table).to_exploded_yaml()
+        assert "flag: true" in result
+        assert "note: null" in result
+
+    def test_limit_truncates_and_notes_remaining_count(self):
+        table = self._table([{"entity_id": f"e{i}", "x": str(i)} for i in range(5)])
+        result = GetterResult(table).to_exploded_yaml(limit=2)
+        assert "row 0:" in result
+        assert "row 1:" in result
+        assert "row 2:" not in result
+        assert "(3 more row(s) not shown)" in result
+
+    def test_no_limit_shows_every_row(self):
+        table = self._table([{"entity_id": f"e{i}", "x": str(i)} for i in range(5)])
+        result = GetterResult(table).to_exploded_yaml()
+        assert "row 4:" in result
+        assert "more row(s) not shown" not in result
+
+
 class TestRegistryViewEntities:
     """Tests for view_entities()/view_entities_current()/safe_view_entities*()."""
 
@@ -1092,3 +1144,80 @@ class TestViewEntity:
         )
         output = registry.view_entity("widget_a")
         assert "parent_eid: e2" in output
+
+
+class TestComponentTypeOverview:
+    """Tests for Registry.component_type_overview (task #18): one row per
+    declared component type, with description, entity count, and origin."""
+
+    def _registry(self):
+        return Registry.from_component_rows({
+            "entity_id": [
+                {"entity_id": "eid_widget", "value": "eid_widget", "display_alias": "widget", "filepath": "manifest/widgets.yaml"},
+                {"entity_id": "eid_gadget", "value": "eid_gadget", "display_alias": "gadget", "filepath": "builtins.components"},
+                {"entity_id": "e1", "value": "e1", "display_alias": "thing_one", "filepath": "manifest/things.yaml"},
+                {"entity_id": "e2", "value": "e2", "display_alias": "thing_two", "filepath": "manifest/things.yaml"},
+            ],
+            "component_type": [
+                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type", "declares_type_name": "widget"},
+                {"entity_id": "eid_gadget", "component_index": 0, "component_type": "component_type", "declares_type_name": "gadget"},
+            ],
+            "description": [
+                {"entity_id": "eid_widget", "value": "A widget type."},
+            ],
+            "component_instance": [
+                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type"},
+                {"entity_id": "eid_gadget", "component_index": 0, "component_type": "component_type"},
+                {"entity_id": "e1", "component_index": 0, "component_type": "widget"},
+                {"entity_id": "e2", "component_index": 0, "component_type": "widget"},
+            ],
+        })
+
+    def _row(self, df: pd.DataFrame, type_name: str) -> pd.Series:
+        return df[df["component_type.declares_type_name"] == type_name].iloc[0]
+
+    def test_returns_one_row_per_declared_type(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert set(df["component_type.declares_type_name"]) == {"widget", "gadget"}
+
+    def test_includes_description_when_present(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["description.value"] == "A widget type."
+
+    def test_type_without_description_still_gets_a_row(self):
+        """Left join, not `view`'s own inner default -- a type declared
+        without ever being given its own description doesn't vanish."""
+        df = self._registry().component_type_overview().to_pandas()
+        assert pd.isna(self._row(df, "gadget")["description.value"])
+
+    def test_entity_count_counts_distinct_entities_with_an_instance(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["entity_count"] == 2
+
+    def test_entity_count_zero_when_no_instances_yet(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "gadget")["entity_count"] == 0
+
+    def test_origin_is_the_builtins_tag_for_a_builtins_sourced_type(self):
+        """"builtins.components" (no extension -- see
+        load_manifest.raw_strings) identifies a builtins-dir file."""
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "gadget")["origin"] == "builtins"
+
+    def test_origin_is_user_defined_for_a_real_manifest_file(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert self._row(df, "widget")["origin"] == "user-defined"
+
+    def test_no_component_type_table_returns_empty_result(self):
+        registry = Registry.from_component_rows({
+            "entity_id": [{"entity_id": "e1", "value": "e1"}],
+        })
+        result = registry.component_type_overview()
+        assert result.to_pandas().empty
+
+    def test_composes_with_to_exploded_yaml(self):
+        """The overview is a plain GetterResult -- task #15's display
+        helper works on it with no special-casing."""
+        output = self._registry().component_type_overview().to_exploded_yaml()
+        assert "declares_type_name: widget" in output
+        assert "declares_type_name: gadget" in output
