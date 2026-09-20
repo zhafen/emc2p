@@ -32,7 +32,7 @@ def stripped_registry(resolved_registry: Registry) -> Registry:
     fields_by_comp: dict[str, list[str]] = {}
     if not field_df.empty and not entity_id_df.empty and "type" in field_df.columns:
         desc_fields = field_df[field_df["type"] == "description"]
-        id_to_key = entity_id_df.set_index("value")["entity_key"]
+        id_to_key = entity_id_df.set_index("value")["display_key"]
         for _, row in desc_fields.iterrows():
             comp_type = id_to_key.get(row["entity_id"])
             if comp_type:
@@ -112,7 +112,7 @@ def time_filled_registry(
     components = field_derived_registry._components
     df_field = components["field"].execute()
     df_entity = components["entity_id"].execute()
-    key_by_eid = df_entity.set_index("value")["entity_key"]
+    key_by_eid = df_entity.set_index("value")["display_key"]
 
     time_fields: dict[str, str] = {}
     if "time_dimension" in df_field.columns:

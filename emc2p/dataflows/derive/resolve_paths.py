@@ -40,7 +40,7 @@ def fields_of_type_entity_ref(entity_id: ir.Table, field: ir.Table) -> dict[str,
     entity_id_df = entity_id.to_pandas()
 
     entity_ref_fields = derived_field_df[derived_field_df["type"] == "entity_ref"]
-    id_to_key = entity_id_df.set_index("value")["entity_key"]
+    id_to_key = entity_id_df.set_index("value")["display_key"]
 
     result: dict[str, list[str]] = {}
     for _, row in entity_ref_fields.iterrows():
@@ -142,7 +142,7 @@ def parent_from_hierarchy(entity_id: ir.Table) -> ir.Table:
     Parameters
     ----------
     entity_id : ir.Table
-        One row per entity with columns ``value``, ``path``, ``entity_key``, ``filepath``.
+        One row per entity with columns ``value``, ``path``, ``display_key``, ``filepath``.
 
     Returns
     -------
@@ -195,11 +195,11 @@ def updated_parent(
     df_spine = entity_id.to_pandas()
     df_spine = df_spine.rename(columns={"value": "entity_id"})
     key_to_id = (
-        df_spine[["entity_id", "entity_key"]]
+        df_spine[["entity_id", "display_key"]]
         .dropna()
-        .drop_duplicates(subset=["entity_id", "entity_key"])
-        .drop_duplicates(subset=["entity_key"])
-        .set_index("entity_key")["entity_id"]
+        .drop_duplicates(subset=["entity_id", "display_key"])
+        .drop_duplicates(subset=["display_key"])
+        .set_index("display_key")["entity_id"]
         .to_dict()
     )
 

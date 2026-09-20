@@ -280,8 +280,8 @@ class TestLoadManifestAcceptsStrings:
 
 def _make_entity_id_table():
     df = pd.DataFrame([{
-        "value": "abc", "path": "test:e", "alias": "e",
-        "entity_key": "e", "filepath": "test",
+        "value": "abc", "path": "test:e", "display_alias": "e",
+        "display_key": "e", "filepath": "test",
     }])
     return ibis.memtable(df)
 
@@ -448,8 +448,8 @@ class TestComponentTables:
         kvs = load_manifest.keyvalue_store(pvp)
         return load_manifest.component_tables(kvs)
 
-    def _eid(self, entity_key: str) -> str:
-        return dhash(f"{_FILE_ID}:{entity_key}")
+    def _eid(self, display_key: str) -> str:
+        return dhash(f"{_FILE_ID}:{display_key}")
 
     def test_returns_dict_of_ibis_tables(self):
         data = {"entity": [{"description": "A thing."}]}
@@ -674,7 +674,7 @@ class TestCsvSpine:
     def test_has_required_columns(self, tmp_path):
         raw = self._make_raw(tmp_path, "task.csv", "name\nalpha\n")
         result = load_manifest.csv_spine(raw)
-        for col in ["entity_id", "entity_key", "filepath", "path"]:
+        for col in ["entity_id", "display_key", "filepath", "path"]:
             assert col in result.columns
 
     def test_one_row_per_file_not_per_csv_row(self, tmp_path):
@@ -692,11 +692,11 @@ class TestCsvSpine:
         expected_id = dhash(file_id)
         assert df.iloc[0]["entity_id"] == expected_id
 
-    def test_entity_key_is_stem(self, tmp_path):
+    def test_display_key_is_stem(self, tmp_path):
         raw = self._make_raw(tmp_path, "requirement.csv", "text\nReq A\n")
         result = load_manifest.csv_spine(raw)
         df = result.to_pandas()
-        assert df.iloc[0]["entity_key"] == "requirement"
+        assert df.iloc[0]["display_key"] == "requirement"
 
     def test_path_format(self, tmp_path):
         csv_file = tmp_path / "task.csv"

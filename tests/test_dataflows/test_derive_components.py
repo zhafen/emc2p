@@ -8,7 +8,7 @@ from emc2p.registry import Registry
 
 def _status_reading_registry():
     return Registry.from_component_rows({
-        "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
+        "entity_id": [{"value": "def1", "display_key": "status_reading"}],
         "field": [
             {"entity_id": "def1", "component_index": 0, "value": "as_of", "time_dimension": True},
             {"entity_id": "def1", "component_index": 0, "value": "status", "time_dimension": False},
@@ -48,7 +48,7 @@ class TestTimeFilledRegistry:
 
     def test_no_time_dimension_column_is_noop(self):
         registry = Registry.from_component_rows({
-            "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
+            "entity_id": [{"value": "def1", "display_key": "status_reading"}],
             "field": [{"entity_id": "def1", "component_index": 0, "value": "as_of"}],
             "status_reading": [
                 {"entity_id": "e1", "component_index": 0, "as_of": None, "status": "open"},
@@ -65,7 +65,7 @@ class TestTimeFilledRegistry:
         not re-included in every later incremental write."""
         existing_registry = _status_reading_registry()
         batch = Registry.from_component_rows({
-            "entity_id": [{"value": "other_def", "entity_key": "other_type"}],
+            "entity_id": [{"value": "other_def", "display_key": "other_type"}],
             "field": [
                 {"entity_id": "other_def", "component_index": 0, "value": "note", "time_dimension": False},
             ],
@@ -91,7 +91,7 @@ class TestTimeFilledRegistry:
 
     def test_multiple_time_dimension_fields_raises(self):
         registry = Registry.from_component_rows({
-            "entity_id": [{"value": "def1", "entity_key": "status_reading"}],
+            "entity_id": [{"value": "def1", "display_key": "status_reading"}],
             "field": [
                 {"entity_id": "def1", "component_index": 0, "value": "as_of", "time_dimension": True},
                 {"entity_id": "def1", "component_index": 0, "value": "also_as_of", "time_dimension": True},

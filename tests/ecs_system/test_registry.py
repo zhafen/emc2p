@@ -94,8 +94,8 @@ class TestRegistryView:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["iacs", "registry"], "alias": ["iacs", "registry"],
-             "path": ["test:iacs", "test:registry"], "entity_key": ["iacs", "registry"],
+            {"value": ["iacs", "registry"], "display_alias": ["iacs", "registry"],
+             "path": ["test:iacs", "test:registry"], "display_key": ["iacs", "registry"],
              "filepath": ["test", "test"]},
         )
         conn.create_table(
@@ -153,8 +153,8 @@ class TestRegistryViewAliases:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["iacs", "registry"], "alias": ["iacs", "registry"],
-             "path": ["test:iacs", "test:registry"], "entity_key": ["iacs", "registry"],
+            {"value": ["iacs", "registry"], "display_alias": ["iacs", "registry"],
+             "path": ["test:iacs", "test:registry"], "display_key": ["iacs", "registry"],
              "filepath": ["test", "test"]},
         )
         conn.create_table(
@@ -185,9 +185,9 @@ class TestRegistryViewAliases:
             "entity_id",
             {
                 "value": ["e1", "e2", "e3"],
-                "alias": ["shared_a", "shared_b", "unrelated"],
+                "display_alias": ["shared_a", "shared_b", "unrelated"],
                 "path": ["test:shared_a", "test:shared_b", "test:unrelated"],
-                "entity_key": ["shared_a", "shared_b", "unrelated"],
+                "display_key": ["shared_a", "shared_b", "unrelated"],
                 "filepath": ["test", "test", "test"],
             },
         )
@@ -240,8 +240,8 @@ class TestRegistryViewMultipleComponents:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["a", "b", "c"], "alias": ["a", "b", "c"],
-             "path": ["test:a", "test:b", "test:c"], "entity_key": ["a", "b", "c"],
+            {"value": ["a", "b", "c"], "display_alias": ["a", "b", "c"],
+             "path": ["test:a", "test:b", "test:c"], "display_key": ["a", "b", "c"],
              "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
@@ -298,8 +298,8 @@ class TestRegistryViewDoesNotCrossJoinSameTable:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["a"], "alias": ["a"], "path": ["test:a"],
-             "entity_key": ["a"], "filepath": ["test"]},
+            {"value": ["a"], "display_alias": ["a"], "path": ["test:a"],
+             "display_key": ["a"], "filepath": ["test"]},
         )
         conn.create_table(
             "reading",
@@ -336,9 +336,9 @@ class TestRegistryViewCurrent:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+            {"value": ["def1", "e1", "e2"], "display_alias": ["status_reading", "e1", "e2"],
              "path": ["test:status_reading", "test:e1", "test:e2"],
-             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+             "display_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
             "field",
@@ -445,8 +445,8 @@ class TestRegistryViewCurrent:
         already-known schema, the same fallback time_filled_registry uses
         for backfilling values."""
         conn = ibis.duckdb.connect()
-        conn.create_table("entity_id", {"value": ["e3"], "alias": ["e3"], "path": ["test:e3"],
-                                         "entity_key": ["e3"], "filepath": ["test"]})
+        conn.create_table("entity_id", {"value": ["e3"], "display_alias": ["e3"], "path": ["test:e3"],
+                                         "display_key": ["e3"], "filepath": ["test"]})
         conn.create_table("status_reading", {"entity_id": ["e3"], "component_index": [0],
                                               "modifier": pd.array([None], dtype=pd.StringDtype()),
                                               "as_of": ["2024-09-01"], "status": ["new"]})
@@ -477,8 +477,8 @@ class TestRegistryViewCurrent:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"],
-             "entity_key": ["e1"], "filepath": ["test"]},
+            {"value": ["e1"], "display_alias": ["e1"], "path": ["test:e1"],
+             "display_key": ["e1"], "filepath": ["test"]},
         )
         # No "time_dimension" column at all — no field anywhere sets it.
         conn.create_table(
@@ -509,9 +509,9 @@ class TestRegistrySafeView:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1"], "alias": ["status_reading", "e1"],
+            {"value": ["def1", "e1"], "display_alias": ["status_reading", "e1"],
              "path": ["test:status_reading", "test:e1"],
-             "entity_key": ["status_reading", "e1"], "filepath": ["test", "test"]},
+             "display_key": ["status_reading", "e1"], "filepath": ["test", "test"]},
         )
         conn.create_table(
             "field",
@@ -567,9 +567,9 @@ class TestRegistryCurrentValueViaToScalar:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["def1", "e1", "e2"], "alias": ["status_reading", "e1", "e2"],
+            {"value": ["def1", "e1", "e2"], "display_alias": ["status_reading", "e1", "e2"],
              "path": ["test:status_reading", "test:e1", "test:e2"],
-             "entity_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
+             "display_key": ["status_reading", "e1", "e2"], "filepath": ["test", "test", "test"]},
         )
         conn.create_table(
             "field",
@@ -691,7 +691,7 @@ class TestRegistryDeclareSchema:
         conn = ibis.duckdb.connect()
         conn.create_table(
             "entity_id",
-            {"value": ["e1"], "alias": ["e1"], "path": ["test:e1"], "entity_key": ["e1"], "filepath": ["test"]},
+            {"value": ["e1"], "display_alias": ["e1"], "path": ["test:e1"], "display_key": ["e1"], "filepath": ["test"]},
         )
         # An empty (but correctly-columned) "field" table, so
         # _time_dimension_field finds no time_dimension field, not a missing key.
@@ -757,7 +757,7 @@ class TestRegistryDeclareSchema:
         other_conn = ibis.duckdb.connect()
         other_conn.create_table(
             "entity_id",
-            {"value": ["e2"], "alias": ["e2"], "path": ["test:e2"], "entity_key": ["e2"], "filepath": ["test"]},
+            {"value": ["e2"], "display_alias": ["e2"], "path": ["test:e2"], "display_key": ["e2"], "filepath": ["test"]},
         )
         other = Registry(other_conn, {"entity_id": other_conn.table("entity_id")})
         schema = ibis.schema({"entity_id": "string", "component_index": "int64", "modifier": "string", "x": "float64"})
@@ -787,7 +787,7 @@ class TestRegistryGetEntityId:
                     "ddd444ddd444",
                     "eee555eee555",
                 ],
-                "alias": [
+                "display_alias": [
                     "water_cats",
                     "feeding_system",
                     "feeding_system.feed_cats",
@@ -803,7 +803,7 @@ class TestRegistryGetEntityId:
                     "examples/example.yaml:zzz.dup_alias_one",
                     "examples/example.yaml:zzz.dup_alias_two",
                 ],
-                "entity_key": [
+                "display_key": [
                     "water_cats",
                     "feeding_system",
                     "feed_cats",
@@ -912,9 +912,9 @@ class TestRegistryViewEntities:
             "entity_id",
             {
                 "value": ["e1", "e2", "def1"],
-                "alias": ["hero", "villain", "status_reading"],
+                "display_alias": ["hero", "villain", "status_reading"],
                 "path": ["story:hero", "story:villain", "story:status_reading"],
-                "entity_key": ["hero", "villain", "status_reading"],
+                "display_key": ["hero", "villain", "status_reading"],
                 "filepath": ["story"] * 3,
             },
         )
@@ -1015,12 +1015,12 @@ class TestRegistryViewEntities:
             "entity_id",
             {
                 "value": ["bbb222bbb222", "ccc333ccc333"],
-                "alias": ["feeding_system", "feeding_system.feed_cats"],
+                "display_alias": ["feeding_system", "feeding_system.feed_cats"],
                 "path": [
                     "examples/example.yaml:feeding_system",
                     "examples/example.yaml:feeding_system.feed_cats",
                 ],
-                "entity_key": ["feeding_system", "feed_cats"],
+                "display_key": ["feeding_system", "feed_cats"],
                 "filepath": ["examples/example.yaml"] * 2,
             },
         )
@@ -1049,7 +1049,7 @@ class TestViewEntity:
     def _registry(self) -> Registry:
         return Registry.from_component_rows(
             {
-                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                "entity_id": [{"entity_id": "e1", "value": "e1", "display_alias": "widget_a"}],
                 # Bookkeeping rows the registry itself tracks per component
                 # type this entity carries -- not entity data.
                 "component_type": [
@@ -1086,7 +1086,7 @@ class TestViewEntity:
         is left alone rather than silently dropped."""
         registry = Registry.from_component_rows(
             {
-                "entity_id": [{"entity_id": "e1", "value": "e1", "alias": "widget_a"}],
+                "entity_id": [{"entity_id": "e1", "value": "e1", "display_alias": "widget_a"}],
                 "parent_eid": [{"entity_id": "e1", "parent_eid": "e2"}],
             }
         )

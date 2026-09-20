@@ -275,7 +275,7 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
 
     Treating the whole file as one entity, rather than giving each row its
     own entity, avoids two problems a per-row entity would create: every
-    row's entity_key/alias colliding (all equal to the stem), and a
+    row's display_key/display_alias colliding (all equal to the stem), and a
     synthetic ``[row_index]`` path segment coming back as a *real*
     container entity once round-tripped through YAML export/reimport.
 
@@ -288,7 +288,7 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, filepath, path. Schema matches the
+        Columns: entity_id, display_key, filepath, path. Schema matches the
         subset of ``yaml_spine`` that ``entity_id_table`` derives from.
     """
     rows = []
@@ -296,12 +296,12 @@ def csv_spine(raw_csv_data: dict[str, pd.DataFrame]) -> ir.Table:
         stem = Path(file_id).stem
         rows.append({
             "entity_id": dhash(file_id),
-            "entity_key": stem,
+            "display_key": stem,
             "filepath": file_id,
             "path": f"{file_id}:{stem}",
         })
     spine_df = pd.DataFrame(
-        rows, columns=["entity_id", "entity_key", "filepath", "path"]
+        rows, columns=["entity_id", "display_key", "filepath", "path"]
     )
     for col in spine_df.columns:
         spine_df[col] = spine_df[col].astype(pd.StringDtype())
@@ -370,8 +370,8 @@ def _flatten_to_pathvalue(data: dict, parent_path: str = "") -> list[tuple[str, 
     recursively.
     """
     result = []
-    for entity_key, entity_value in data.items():
-        entity_path = f"{parent_path}.{entity_key}" if parent_path else entity_key
+    for display_key, entity_value in data.items():
+        entity_path = f"{parent_path}.{display_key}" if parent_path else display_key
         if isinstance(entity_value, list):
             for i, component in enumerate(entity_value):
                 _add_component_pairs(entity_path, i, component, result)
@@ -395,8 +395,8 @@ def _collect_entity_paths(data: dict, parent_path: str = "") -> list[str]:
     ``parent_eid``) reference them by hash.
     """
     result = []
-    for entity_key, entity_value in data.items():
-        entity_path = f"{parent_path}.{entity_key}" if parent_path else entity_key
+    for display_key, entity_value in data.items():
+        entity_path = f"{parent_path}.{display_key}" if parent_path else display_key
         if isinstance(entity_value, list):
             result.append(entity_path)
         elif isinstance(entity_value, dict):
@@ -412,7 +412,7 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, entity_path, filepath. Schema matches
+        Columns: entity_id, display_key, entity_path, filepath. Schema matches
         the corresponding subset of ``keyvalue_store`` columns, so it's a
         drop-in replacement that also covers entities with no components.
     """
@@ -421,12 +421,12 @@ def yaml_spine(raw_entity_first_data: dict) -> ir.Table:
         for entity_path in _collect_entity_paths(entities):
             rows.append({
                 "entity_id": dhash(f"{file_id}:{entity_path}"),
-                "entity_key": entity_path.rsplit(".", 1)[-1],
+                "display_key": entity_path.rsplit(".", 1)[-1],
                 "entity_path": f"{file_id}:{entity_path}",
                 "filepath": file_id,
             })
     spine_df = pd.DataFrame(
-        rows, columns=["entity_id", "entity_key", "entity_path", "filepath"]
+        rows, columns=["entity_id", "display_key", "entity_path", "filepath"]
     )
     for col in spine_df.columns:
         spine_df[col] = spine_df[col].astype(pd.StringDtype())
@@ -447,7 +447,7 @@ def pathvalue_pairs(raw_entity_first_data: dict) -> ir.Table:
     Parameters
     ----------
     raw_entity_first_data : dict
-        Nested dict of the form {file_id: {entity_key: entity_data}}.
+        Nested dict of the form {file_id: {display_key: entity_data}}.
 
     Returns
     -------
@@ -494,7 +494,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
     Returns
     -------
     ir.Table
-        Columns: entity_id, entity_key, entity_path, filepath,
+        Columns: entity_id, display_key, entity_path, filepath,
         component_index, component_type, modifier, spine_path, field, value.
     """
     t = pathvalue_pairs.filter(pathvalue_pairs.path.re_search(_PATH_PATTERN))
@@ -512,7 +512,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
     )
     t = t.mutate(
         entity_id=t.entity_path.hexdigest("sha256").substr(0, 12),
-        entity_key=t.entity_path.re_extract(r"([^:.]+)$", 1),
+        display_key=t.entity_path.re_extract(r"([^:.]+)$", 1),
         filepath=t.entity_path.re_extract(r"^([^:]+):", 1).nullif(""),
     )
     t = t.mutate(
@@ -526,7 +526,7 @@ def keyvalue_store(pathvalue_pairs: ir.Table) -> ir.Table:
         field=ibis.ifelse(t["field"] == "", ibis.literal("value"), t["field"])
     )
     return t.select(
-        "entity_id", "entity_key", "entity_path", "filepath",
+        "entity_id", "display_key", "entity_path", "filepath",
         "component_index", "component_type", "modifier",
         "spine_path", "field", "value",
     )
@@ -542,37 +542,39 @@ def entity_id_table(yaml_spine: ir.Table, csv_spine: ir.Table = None) -> ir.Tabl
     Returns
     -------
     ir.Table
-        Columns: value, path, alias, entity_key, filepath.
+        Columns: value, path, display_alias, display_key, filepath.
         ``value`` is the entity hash (the entity_id); ``path`` is the full
-        entity_path; ``alias`` is the human-readable display ID (last two
-        dot-segments of the entity path, or just entity_key for top-level).
+        entity_path; ``display_alias`` is the human-readable display ID
+        (last two dot-segments of the entity path, or just display_key for
+        top-level). Display-only -- never unique, never safe to match or
+        join on (use entity_id/value itself for that).
     """
     yaml_entities = yaml_spine.select(
-        "entity_id", "entity_key", "entity_path", "filepath"
+        "entity_id", "display_key", "entity_path", "filepath"
     ).distinct().to_pandas()
     yaml_entities = yaml_entities.rename(columns={"entity_id": "value", "entity_path": "path"})
 
-    def compute_alias(row):
+    def compute_display_alias(row):
         entity_path = row["path"]
-        entity_key = row["entity_key"]
+        display_key = row["display_key"]
         sep = entity_path.find(":")
         name_part = entity_path[sep + 1:] if sep != -1 else entity_path
         parts = name_part.split(".")
-        return ".".join(parts[-2:]) if len(parts) >= 2 else entity_key
+        return ".".join(parts[-2:]) if len(parts) >= 2 else display_key
 
-    yaml_entities["alias"] = yaml_entities.apply(compute_alias, axis=1)
-    df = yaml_entities[["value", "path", "alias", "entity_key", "filepath"]]
+    yaml_entities["display_alias"] = yaml_entities.apply(compute_display_alias, axis=1)
+    df = yaml_entities[["value", "path", "display_alias", "display_key", "filepath"]]
 
     if csv_spine is not None:
         csv_df = csv_spine.to_pandas()
-        csv_entity_df = csv_df[["entity_id", "entity_key", "filepath", "path"]].drop_duplicates()
+        csv_entity_df = csv_df[["entity_id", "display_key", "filepath", "path"]].drop_duplicates()
         csv_entity_df = csv_entity_df.rename(columns={"entity_id": "value"})
-        csv_entity_df["alias"] = csv_entity_df["entity_key"]
-        csv_entity_df = csv_entity_df[["value", "path", "alias", "entity_key", "filepath"]]
+        csv_entity_df["display_alias"] = csv_entity_df["display_key"]
+        csv_entity_df = csv_entity_df[["value", "path", "display_alias", "display_key", "filepath"]]
         df = pd.concat([df, csv_entity_df], ignore_index=True)
 
-    df = df[["value", "path", "alias", "entity_key", "filepath"]]
-    for col in ("value", "path", "alias", "entity_key"):
+    df = df[["value", "path", "display_alias", "display_key", "filepath"]]
+    for col in ("value", "path", "display_alias", "display_key"):
         df[col] = df[col].astype(pd.StringDtype())
     df["filepath"] = df["filepath"].astype(pd.StringDtype())
     return ibis.memtable(df)
@@ -610,9 +612,9 @@ def component_type_table(
     df = keyvalue_store.execute()
 
     entity_keys = (
-        df[["entity_id", "entity_key"]]
+        df[["entity_id", "display_key"]]
         .drop_duplicates(subset=["entity_id"])
-        .set_index("entity_id")["entity_key"]
+        .set_index("entity_id")["display_key"]
         .to_dict()
     )
 
@@ -755,7 +757,7 @@ def registry(
     Parameters
     ----------
     entity_id_table : ir.Table
-        One row per entity (hash, path, value, alias, entity_key, filepath).
+        One row per entity (hash, path, value, display_alias, display_key, filepath).
     component_type_table : ir.Table
         One row per component instance (entity_id, component_index, component_type, modifier).
     component_tables : dict[str, ir.Table]

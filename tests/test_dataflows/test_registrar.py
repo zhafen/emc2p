@@ -393,7 +393,7 @@ class TestUpdate:
 
         eids = r.registry.get("entity_id")
         player_eid = (
-            eids.filter(eids["alias"].contains("player")).execute().iloc[0]["value"]
+            eids.filter(eids["display_alias"].contains("player")).execute().iloc[0]["value"]
         )
 
         input_yaml = f"""
@@ -430,7 +430,7 @@ class TestUpdate:
             r = Registrar.from_manifest(example_dir)
             eids = r.registry.get("entity_id")
             player_eid = (
-                eids.filter(eids["alias"].contains("player")).execute().iloc[0]["value"]
+                eids.filter(eids["display_alias"].contains("player")).execute().iloc[0]["value"]
             )
             same_as_yaml = f"""
             player_position_a:
@@ -470,7 +470,7 @@ class TestUpdate:
             "req": "req_a:\n- description: Requirement A\n- requirement\n"
         })
         eids = r.registry.get("entity_id")
-        req_eid = eids.filter(eids["alias"] == "req_a").execute().iloc[0]["value"]
+        req_eid = eids.filter(eids["display_alias"] == "req_a").execute().iloc[0]["value"]
 
         r.update(yaml_strings={
             "extra": (
@@ -486,7 +486,7 @@ class TestUpdate:
         assert len(new_todo) == 1
         assert new_todo.iloc[0]["entity_id"] == req_eid
         # No disconnected second entity was minted for req_a_update.
-        assert eids.filter(eids["alias"] == "req_a_update").count().execute() == 0
+        assert eids.filter(eids["display_alias"] == "req_a_update").count().execute() == 0
         assert r.registry.get("requirement").count().execute() == 1
 
     def test_same_as_by_raw_hash_in_value_targets_entity(self):
@@ -501,7 +501,7 @@ class TestUpdate:
             "req": "req_a:\n- description: Requirement A\n- requirement\n"
         })
         eids = r.registry.get("entity_id")
-        req_eid = eids.filter(eids["alias"] == "req_a").execute().iloc[0]["value"]
+        req_eid = eids.filter(eids["display_alias"] == "req_a").execute().iloc[0]["value"]
 
         r.update(yaml_strings={
             "extra": (

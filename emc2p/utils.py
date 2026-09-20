@@ -42,7 +42,7 @@ def flagged_component_type_names(components: dict, flag_column: str) -> set[str]
     ``component_type == "component_type"`` -- it is an instance of the
     ``component_type`` component type itself, not of the type it flags --
     so the flagged type's real name is NOT that row's own ``component_type``
-    column; it's the owning entity's own ``entity_key``, found by joining
+    column; it's the owning entity's own ``display_key``, found by joining
     the row's ``entity_id`` against the ``entity_id`` table.
 
     Parameters
@@ -66,7 +66,7 @@ def flagged_component_type_names(components: dict, flag_column: str) -> set[str]
     """
     ct, entity_id = components["component_type"], components["entity_id"]
     flagged = ct.filter(ct.component_type == "component_type", ct[flag_column])
-    return set(flagged.join(entity_id, flagged.entity_id == entity_id.value).entity_key.execute())
+    return set(flagged.join(entity_id, flagged.entity_id == entity_id.value).display_key.execute())
 
 
 def candidate_entity_ids(user_path: str, entity_id_table: pd.DataFrame) -> list[str]:
@@ -81,24 +81,24 @@ def candidate_entity_ids(user_path: str, entity_id_table: pd.DataFrame) -> list[
        `same_as.value`) reference an entity precisely by hash, the same
        as `same_as.target_entity_id` does explicitly, without a caller
        needing that separate field.
-    2. An exact match against `alias`, when `entity_id_table` has one
-       (every real entity_id table does; callers that pass a bare
+    2. An exact match against `display_alias`, when `entity_id_table` has
+       one (every real entity_id table does; callers that pass a bare
        `value`/`path` table — e.g. the older, alias-less tests for this
        function — just skip to the substring fallback). This isn't just
-       an optimization: a container entity's own alias is always a
+       an optimization: a container entity's own display_alias is always a
        substring of its descendants' full paths too (e.g.
        `"make_cats_happy"` vs. `"make_cats_happy.feed_and_water_cats"`),
-       so without it, `user_path` naming a container by its own alias
-       would resolve as ambiguous with its own children instead of
-       uniquely to the container.
+       so without it, `user_path` naming a container by its own
+       display_alias would resolve as ambiguous with its own children
+       instead of uniquely to the container.
     3. Every entity ID whose full `path` contains `user_path` as a
        substring.
     """
     hash_matches = entity_id_table.loc[entity_id_table["value"] == user_path, "value"].tolist()
     if hash_matches:
         return hash_matches
-    if "alias" in entity_id_table.columns:
-        alias_matches = entity_id_table.loc[entity_id_table["alias"] == user_path, "value"].tolist()
+    if "display_alias" in entity_id_table.columns:
+        alias_matches = entity_id_table.loc[entity_id_table["display_alias"] == user_path, "value"].tolist()
         if alias_matches:
             return alias_matches
     mask = entity_id_table["path"].str.contains(user_path, regex=False)

@@ -7,7 +7,7 @@ import emc2p.dataflows.validation.validate_components as validate_components
 
 
 _EMPTY_FIELD_COLS = ["entity_id", "component_index", "value", "type", "nullable", "default", "range"]
-_EMPTY_ENTITY_ID_COLS = ["value", "entity_key", "path", "alias"]
+_EMPTY_ENTITY_ID_COLS = ["value", "display_key", "path", "display_alias"]
 
 
 def _make_entity_id_table(rows: list[dict]) -> ibis.Table:
@@ -35,8 +35,8 @@ def _call(components, field_rows, entity_id_rows):
 
 class TestValidationResults:
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _field_row(self, entity_id, field_name, field_type=None, nullable=None, default=None, field_range=None):
         return {
@@ -223,7 +223,7 @@ class TestValidationResults:
         assert len(df) == 2
         assert set(df["error_type"]) == {"nullable", "range"}
 
-    def test_unrecognized_entity_key_ignored(self):
+    def test_unrecognized_display_key_ignored(self):
         """Components without matching field definitions are passed through."""
         components = {"orphan": _make_component_table([{"entity_id": "e1", "component_index": 0, "value": "x"}])}
         field_rows = [self._field_row("eid_other", "value", field_type="str")]
@@ -267,8 +267,8 @@ class TestValidationResultsDeclaredSchemas:
     """Tests for the declared_schemas output: schemas for component types
     declared via a `component_type` tag but with no data rows this batch."""
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _field_row(self, entity_id, field_name, field_type=None, nullable=None, default=None, field_range=None):
         return {
@@ -349,8 +349,8 @@ class TestFieldValidationResults:
     validate every other component.
     """
 
-    def _entity_id_row(self, entity_id, entity_key):
-        return {"value": entity_id, "entity_key": entity_key, "path": f"test:{entity_key}", "alias": entity_key}
+    def _entity_id_row(self, entity_id, display_key):
+        return {"value": entity_id, "display_key": display_key, "path": f"test:{display_key}", "display_alias": display_key}
 
     def _meta_row(self, entity_id, attr_name, field_type=None, nullable=None, default=None, field_range=None, **attrs):
         """A field row defining one of field's own meta-attributes (attached to the entity that defines "field")."""
@@ -385,7 +385,7 @@ class TestFieldValidationResults:
     def test_no_self_schema_passes_through_unchanged(self):
         """When field has no schema defined for itself, field passes through as-is."""
         field_rows = [self._meta_row("eid_other", "name", field_type="str")]
-        entity_id_rows = [self._entity_id_row("eid_other", "other")]  # entity_key != "field"
+        entity_id_rows = [self._entity_id_row("eid_other", "other")]  # display_key != "field"
         validated_field, invalid = self._call(field_rows, entity_id_rows)
         df = validated_field.execute()
         assert len(df) == 1

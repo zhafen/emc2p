@@ -79,7 +79,7 @@ class GetterResult:
         row = self.to_dict()
         if not row:
             return None
-        data_cols = [k for k in row if k not in ("entity_id", "entity_id.alias")]
+        data_cols = [k for k in row if k not in ("entity_id", "entity_id.display_alias")]
         if len(data_cols) != 1:
             raise ValueError(f"Expected exactly one data column, got {data_cols}.")
         return row[data_cols[0]]
@@ -447,11 +447,11 @@ class Registry:
         Args:
             component_type: A component type name, a dotted "table.field"
                 string, or a list of either. All results are inner-joined by
-                entity_id with columns named "table.field". ``entity_id.alias``
+                entity_id with columns named "table.field". ``entity_id.display_alias``
                 is prepended automatically unless already requested.
             entity: An entity ref, or list of them, to filter the result
                 down to. Each is resolved the same way `get_entity_id` does
-                (exact hash, else exact alias, else substring match), except
+                (exact hash, else exact display_alias, else substring match), except
                 a ref matching more than one entity is not an error here —
                 every match is included, and a warning is raised (this is
                 one of the few contexts where an ambiguous ref is fine, since
@@ -570,7 +570,7 @@ class Registry:
             return self.view_entities(entity)
         except KeyError:
             return GetterResult(
-                ibis.memtable([], schema={"entity_id": "string", "entity_id.alias": "string"})
+                ibis.memtable([], schema={"entity_id": "string", "entity_id.display_alias": "string"})
             )
 
     def safe_view_entities_current(self, entity: str | list[str]) -> GetterResult:
@@ -579,7 +579,7 @@ class Registry:
             return self.view_entities_current(entity)
         except KeyError:
             return GetterResult(
-                ibis.memtable([], schema={"entity_id": "string", "entity_id.alias": "string"})
+                ibis.memtable([], schema={"entity_id": "string", "entity_id.display_alias": "string"})
             )
 
     def _resolve_aliases(self, aliases: str | list[str]) -> set[str]:
@@ -637,10 +637,10 @@ class Registry:
             component_type = [component_type]
 
         if (
-            "entity_id.alias" not in component_type
+            "entity_id.display_alias" not in component_type
             and "entity_id" not in component_type
         ):
-            component_type = ["entity_id.alias"] + list(component_type)
+            component_type = ["entity_id.display_alias"] + list(component_type)
 
         # Resolve each entry to a (table_name, field) pair, expanding bare
         # table names to all of their non-meta fields.
@@ -750,7 +750,7 @@ class Registry:
             return None
 
         df_entity = self._components["entity_id"].execute()
-        def_eids = df_entity.loc[df_entity["entity_key"] == component_type, "value"]
+        def_eids = df_entity.loc[df_entity["display_key"] == component_type, "value"]
 
         matches = df_field[df_field["entity_id"].isin(def_eids)]
         fields = sorted({
@@ -799,7 +799,7 @@ class Registry:
         The read-only counterpart to `candidate_entity_ids`, which this
         delegates to directly: it's the exact same resolution ETL uses for
         `entity_ref` fields and `same_as` targets (exact hash, else exact
-        alias, else substring match against every entity's full path), kept
+        display_alias, else substring match against every entity's full path), kept
         only if it resolves to exactly one entity.
 
         Deliberately tolerant rather than raising — unlike `same_as` target
@@ -809,7 +809,7 @@ class Registry:
         know whether a matching entity currently exists.
 
         Args:
-            entity_ref: An entity hash, alias, or path fragment identifying
+            entity_ref: An entity hash, display_alias, or path fragment identifying
                 the entity.
 
         Returns:
@@ -836,7 +836,7 @@ class Registry:
         shown, without cross-multiplying them against each other.
 
         Args:
-            entity_id: Entity hash, alias, or path fragment identifying the
+            entity_id: Entity hash, display_alias, or path fragment identifying the
                 entity (see `get_entity_id`).
             format: Output format — "markdown" (default, a `key: value`
                 outline, not a table) or "csv".
@@ -876,7 +876,7 @@ class Registry:
                 fields = {
                     (key[len(prefix):] if key.startswith(prefix) else key): value
                     for key, value in row.items()
-                    if key not in ("entity_id", "entity_id.alias")
+                    if key not in ("entity_id", "entity_id.display_alias")
                 }
                 for field, value in fields.items():
                     # An entity_ref field (e.g. "value") resolves during

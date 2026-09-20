@@ -21,16 +21,16 @@ OTHER_EID = dhash(OTHER_PATH)
 
 def _entity_id_rows(*, other_entity=False):
     rows = [
-        {"value": PARENT_EID, "path": PARENT_PATH, "entity_key": "the_parent"},
-        {"value": CHILD_EID, "path": CHILD_PATH, "entity_key": "the_child"},
+        {"value": PARENT_EID, "path": PARENT_PATH, "display_key": "the_parent"},
+        {"value": CHILD_EID, "path": CHILD_PATH, "display_key": "the_child"},
         # Component-type definition entities, so fields_of_type_entity_ref
         # can map their "field" rows back to a component_type name.
-        {"value": "def_requirement", "path": "builtins.yaml:requirement", "entity_key": "requirement"},
-        {"value": "def_solution", "path": "builtins.yaml:solution", "entity_key": "solution"},
-        {"value": "def_calls", "path": "builtins.yaml:calls", "entity_key": "calls"},
+        {"value": "def_requirement", "path": "builtins.yaml:requirement", "display_key": "requirement"},
+        {"value": "def_solution", "path": "builtins.yaml:solution", "display_key": "solution"},
+        {"value": "def_calls", "path": "builtins.yaml:calls", "display_key": "calls"},
     ]
     if other_entity:
-        rows.append({"value": OTHER_EID, "path": OTHER_PATH, "entity_key": "something_else"})
+        rows.append({"value": OTHER_EID, "path": OTHER_PATH, "display_key": "something_else"})
     return rows
 
 
@@ -62,7 +62,7 @@ def _component_type_rows(*flagged_names, **explicit_flags):
     instance of the component_type component type itself (the schema
     entity's ``- component_type: {...}`` tag), not an instance of the
     flagged type. ``implicit_parent_target_types`` resolves the flagged
-    type's real name via the owning entity's own entity_key in the
+    type's real name via the owning entity's own display_key in the
     entity_id table (see ``_entity_id_rows``'s ``def_{name}`` -> ``{name}``
     mapping), not from this column.
     """
@@ -166,7 +166,7 @@ class TestComponentsWithResolvedPaths:
         case: a real value_eid, resolved by entity_ref lookup."""
         registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True) + [
-                {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
+                {"value": "def_dependence", "path": "builtins.yaml:dependence", "display_key": "dependence"},
             ],
             "field": _field_rows("dependence"),
             "component_type": _component_type_rows(dependence=False),
@@ -184,7 +184,7 @@ class TestComponentsWithResolvedPaths:
         value should stay unresolved rather than default to the parent."""
         registry = Registry.from_component_rows({
             "entity_id": _entity_id_rows(other_entity=True) + [
-                {"value": "def_dependence", "path": "builtins.yaml:dependence", "entity_key": "dependence"},
+                {"value": "def_dependence", "path": "builtins.yaml:dependence", "display_key": "dependence"},
             ],
             "field": _field_rows("dependence"),
             "component_type": _component_type_rows(dependence=False),
@@ -202,9 +202,9 @@ class TestComponentsWithResolvedPaths:
         not raise."""
         registry = Registry.from_component_rows({
             "entity_id": [
-                {"value": PARENT_EID, "path": PARENT_PATH, "entity_key": "the_parent"},
-                {"value": OTHER_EID, "path": OTHER_PATH, "entity_key": "something_else"},
-                {"value": "def_requirement", "path": "builtins.yaml:requirement", "entity_key": "requirement"},
+                {"value": PARENT_EID, "path": PARENT_PATH, "display_key": "the_parent"},
+                {"value": OTHER_EID, "path": OTHER_PATH, "display_key": "something_else"},
+                {"value": "def_requirement", "path": "builtins.yaml:requirement", "display_key": "requirement"},
             ],
             "field": _field_rows("requirement"),
             "component_type": _component_type_rows("requirement"),

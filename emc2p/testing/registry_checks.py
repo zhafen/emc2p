@@ -52,7 +52,7 @@ def unexpected_components(registrar: "Registrar", alias: str, expected: set[str]
     """
     row = registrar.safe_view_entities(alias).to_dict()
     present = {
-        key.partition(".")[0] for key in row if key not in ("entity_id", "entity_id.alias")
+        key.partition(".")[0] for key in row if key not in ("entity_id", "entity_id.display_alias")
     }
     return present - expected - _ALWAYS_PRESENT_META_COMPONENTS
 

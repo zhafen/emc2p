@@ -169,8 +169,8 @@ def _build_component_schemas(
     field : ir.Table
         The ``field`` component table from the registry.
     entity_id : ir.Table
-        One row per entity (value, path, alias, entity_key, filepath),
-        used to map entity_key -> entity_id for schema lookup.
+        One row per entity (value, path, display_alias, display_key, filepath),
+        used to map display_key -> entity_id for schema lookup.
     existing_field, existing_entity_id : ir.Table, optional
         The same two tables from a registry accumulated by prior updates
         (see ``existing_registry`` on ``field_validation_results``/
@@ -192,11 +192,11 @@ def _build_component_schemas(
     if existing_entity_id is not None:
         df_entity = pd.concat([existing_entity_id.execute(), df_entity], ignore_index=True)
 
-    # Map entity_key -> entity_id for entities that have field definitions
+    # Map display_key -> entity_id for entities that have field definitions
     field_entity_ids = set(df_field["entity_id"].dropna().astype(str))
     key_to_eids: dict[str, list[str]] = {}
-    for _, row in df_entity[["value", "entity_key"]].dropna().drop_duplicates().iterrows():
-        eid, ekey = str(row["value"]), str(row["entity_key"])
+    for _, row in df_entity[["value", "display_key"]].dropna().drop_duplicates().iterrows():
+        eid, ekey = str(row["value"]), str(row["display_key"])
         if eid in field_entity_ids:
             key_to_eids.setdefault(ekey, []).append(eid)
 
@@ -388,7 +388,7 @@ def field_validation_results(
     The ((field)) component type defines its own schema (value, description,
     type, nullable, unique, default, range, units, time_dimension) the same
     way it defines the schema for every other component type: via ``field``
-    sub-entries attached to the entity with ``entity_key == "field"`` (see
+    sub-entries attached to the entity with ``display_key == "field"`` (see
     ``data_structure.field`` in builtins). This validates and type-coerces
     the registry's actual ``field`` table against that self-referential
     schema *before* field is used to validate every other component (see
@@ -419,8 +419,8 @@ def field_validation_results(
         A ``field`` table used only to look up field's own schema — may be
         a filtered subset (e.g. ``builtin_field``).
     entity_id : ir.Table
-        One row per entity (value, path, alias, entity_key, filepath),
-        used to map entity_key -> entity_id for schema lookup.
+        One row per entity (value, path, display_alias, display_key, filepath),
+        used to map display_key -> entity_id for schema lookup.
 
     Returns
     -------
@@ -467,7 +467,7 @@ def _declared_component_types(components: dict, entity_id: ir.Table) -> set[str]
     eids = set(components["component_type"].execute()["entity_id"].dropna().astype(str))
     df_entity = entity_id.execute()
     matches = df_entity[df_entity["value"].isin(eids)]
-    return set(matches["entity_key"].dropna().astype(str))
+    return set(matches["display_key"].dropna().astype(str))
 
 
 @unpack_fields("validated_components", "invalid_field", "declared_schemas")
@@ -502,8 +502,8 @@ def validation_results(
         The ``field`` component table, already validated and type-coerced
         against its own schema by ``field_validation_results``.
     entity_id : ir.Table
-        One row per entity (value, path, alias, entity_key, filepath),
-        used to map entity_key -> entity_id for schema lookup.
+        One row per entity (value, path, display_alias, display_key, filepath),
+        used to map display_key -> entity_id for schema lookup.
     existing_registry : Registry, optional
         The registry already accumulated from prior updates (see
         ``Registrar.update``), consulted for schema lookup so a component
