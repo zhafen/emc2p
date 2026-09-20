@@ -18,10 +18,11 @@ if TYPE_CHECKING:
 # something a model ever chooses to write -- always excluded below.
 # "component_type" (the definitions table) is rarely present on an
 # ordinary entity -- only one that itself declares a component_type tag
-# -- but "component_instance" (the full per-instance inventory) is, so
-# both are listed (see emc2p.dataflows.etl.load_manifest, task #14's
-# split of the old unified component_type table).
-_ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type", "component_instance"}
+# -- but excluding it here is still correct on the rare occasion it is.
+# The full per-instance inventory (Registry.component_instances) is a
+# derived view, not a stored component table, so it never shows up in
+# `component_types`/this check's own `present` set at all.
+_ALWAYS_PRESENT_META_COMPONENTS = {"entity_id", "component_type"}
 
 
 def schema_exists(dsn: str, schema: str) -> bool:

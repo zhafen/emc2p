@@ -463,8 +463,7 @@ def _declared_component_types(components: dict) -> set[str]:
     tag type has none, but is still a legitimate component type.
 
     Reads directly from ``components["component_type"]``'s own
-    ``declares_type_name`` column (see
-    ``load_manifest.component_type_table``/``component_instance_table``,
+    ``declares_type_name`` column (see ``load_manifest.component_type_table``,
     task #14) rather than re-deriving which entities declared a type by
     joining ``entity_id`` against every ``component_type`` row's own
     ``entity_id`` -- which, before that table was split into

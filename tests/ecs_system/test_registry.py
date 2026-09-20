@@ -1146,6 +1146,83 @@ class TestViewEntity:
         assert "parent_eid: e2" in output
 
 
+class TestComponentInstances:
+    """Tests for Registry.component_instances(): the full per-instance
+    inventory, derived on demand from the registry's own other component
+    tables rather than stored as a components-dict entry of its own."""
+
+    def _registry(self):
+        return Registry.from_component_rows({
+            "entity_id": [
+                {"entity_id": "eid_widget", "value": "eid_widget"},
+            ],
+            "component_type": [
+                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type",
+                 "declares_type_name": "widget", "skip_on_export": True},
+            ],
+            "widget": [
+                {"entity_id": "e1", "component_index": 0, "value": "hello"},
+                {"entity_id": "e2", "component_index": 0, "value": "world"},
+            ],
+        })
+
+    def test_includes_rows_from_every_real_component_table(self):
+        df = self._registry().component_instances().execute()
+        assert set(df["component_type"]) == {"component_type", "widget"}
+
+    def test_excludes_entity_id_itself(self):
+        """entity_id is the spine, not something an entity "has" -- it
+        never appears as a component_type value here."""
+        df = self._registry().component_instances().execute()
+        assert "entity_id" not in set(df["component_type"])
+
+    def test_flag_declared_on_the_type_broadcasts_onto_its_instances(self):
+        """widget's own component_type tag declared skip_on_export:
+        true -- every *instance* of widget (e1, e2) should carry that
+        same flag, not just the tag row itself."""
+        df = self._registry().component_instances().execute()
+        widget_rows = df[df["component_type"] == "widget"]
+        assert len(widget_rows) == 2
+        assert widget_rows["skip_on_export"].all()
+
+    def test_declares_type_name_only_on_the_tag_row(self):
+        df = self._registry().component_instances().execute()
+        widget_rows = df[df["component_type"] == "widget"]
+        assert widget_rows["declares_type_name"].isna().all()
+        tag_row = df[df["component_type"] == "component_type"].iloc[0]
+        assert tag_row["declares_type_name"] == "widget"
+
+    def test_not_counted_as_a_component_type_itself(self):
+        """Never appears in component_types/known_component_types --
+        it's a derived view, not a stored component table."""
+        registry = self._registry()
+        assert "component_instance" not in registry.component_types
+        assert "component_instance" not in registry.known_component_types
+
+    def test_no_component_tables_returns_empty(self):
+        registry = Registry.from_component_rows({})
+        df = registry.component_instances().execute()
+        assert df.empty
+
+    def test_result_is_cached_across_calls(self):
+        registry = self._registry()
+        first = registry.component_instances()
+        second = registry.component_instances()
+        assert first is second
+
+    def test_cache_is_invalidated_by_update(self):
+        """A stale cache would reintroduce exactly the correctness risk
+        this derived-view design exists to avoid."""
+        registry = self._registry()
+        before = registry.component_instances().execute()
+        assert "gadget" not in set(before["component_type"])
+
+        registry.update({"gadget": [{"entity_id": "e3", "component_index": 0, "value": "new"}]})
+
+        after = registry.component_instances().execute()
+        assert "gadget" in set(after["component_type"])
+
+
 class TestComponentTypeOverview:
     """Tests for Registry.component_type_overview (task #18): one row per
     declared component type, with description, entity count, and origin."""
@@ -1165,11 +1242,13 @@ class TestComponentTypeOverview:
             "description": [
                 {"entity_id": "eid_widget", "value": "A widget type."},
             ],
-            "component_instance": [
-                {"entity_id": "eid_widget", "component_index": 0, "component_type": "component_type"},
-                {"entity_id": "eid_gadget", "component_index": 0, "component_type": "component_type"},
-                {"entity_id": "e1", "component_index": 0, "component_type": "widget"},
-                {"entity_id": "e2", "component_index": 0, "component_type": "widget"},
+            # Real "widget" instances -- entity_count is derived from
+            # these (Registry.component_instances), not a fixture of its
+            # own. No entity carries a "gadget" component, so its own
+            # count is expected to come back 0 from having no table at all.
+            "widget": [
+                {"entity_id": "e1", "component_index": 0, "value": "hello"},
+                {"entity_id": "e2", "component_index": 0, "value": "world"},
             ],
         })
 

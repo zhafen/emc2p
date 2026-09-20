@@ -171,6 +171,7 @@ class Registry:
             for k, v in components.items()
             if isinstance(v, ibis.Table)
         }
+        self._component_instances_cache: ibis.Table | None = None
 
     def update(self, components: dict) -> None:
         """Add or overwrite component tables in the registry.
@@ -187,6 +188,7 @@ class Registry:
             self._schemas[comp_type] = self._con.table(comp_type).schema()
             if comp_type not in self._component_types and comp_type != "schema":
                 self._component_types.append(comp_type)
+        self._component_instances_cache = None
 
     def _resolve_null_typed_columns(self, comp_type: str, table: ibis.Table) -> ibis.Table:
         """Give a concrete type to any column DuckDB would otherwise reject.
@@ -849,6 +851,92 @@ class Registry:
             + "\n\n".join(sections)
         )
 
+    def component_instances(self) -> ibis.Table:
+        """Return the full, unfiltered inventory of every component
+        instance currently in the registry: one row per (entity_id,
+        component_index) across every component table, tagged with which
+        component_type it belongs to, plus that type's own declared
+        flags (``derived``/``skip_on_export``/``implicit_parent``, as of
+        this writing -- see ``component_type``) broadcast onto it, and
+        ``declares_type_name`` (non-null only on a ``component_type`` tag
+        row itself, carried straight from ``component_type``'s own rows).
+
+        Computed on demand from whatever's currently in ``entity_id``'s
+        sibling component tables (excluding ``entity_id`` itself, the
+        spine -- no entity is an "instance of" its own identity), not
+        stored as one more entry in ``_components``: unlike a real
+        component type, no entity "has" a component_instance. Keeping it
+        a components-dict citizen (as it briefly was, see task #14) meant
+        a second, easily-stale copy of every other table's own meta
+        columns, and every generic "for each real component type" loop
+        in this codebase needing to remember to exclude it -- close to
+        the same failure mode task #14 fixed for `known_component_types`
+        in the first place. This is the derived-view replacement.
+
+        Cached after first computation; invalidated on the next
+        ``update()`` (and therefore ``merge()``, which calls it
+        internally), so a stale answer here is not possible -- unlike the
+        stored-table version, there is exactly one source of truth (the
+        registry's own other component tables) and this is always a
+        fresh read of it, or a cached copy of that same fresh read.
+
+        Returns
+        -------
+        ibis.Table
+            Columns: entity_id, component_index, component_type, modifier,
+            declares_type_name, plus one column per component_type flag.
+        """
+        if self._component_instances_cache is not None:
+            return self._component_instances_cache
+
+        base_schema = {
+            "entity_id": "string",
+            "component_index": "int64",
+            "component_type": "string",
+            "modifier": "string",
+            "declares_type_name": "string",
+        }
+
+        defs_df = None
+        flag_names: list[str] = []
+        flags_by_type_name: dict[str, dict[str, bool]] = {}
+        if "component_type" in self._components:
+            defs_df = self._components["component_type"].execute()
+            flag_names = [c for c in defs_df.columns if c not in base_schema]
+            if flag_names:
+                flags_by_type_name = defs_df.set_index("declares_type_name")[flag_names].to_dict(orient="index")
+
+        parts = []
+        if defs_df is not None:
+            parts.append(defs_df)  # own rows, own flags, own declares_type_name -- used as-is
+        for name, table in self._components.items():
+            if name in ("entity_id", "component_type"):
+                continue
+            df = table.execute()
+            if "entity_id" not in df.columns or "component_index" not in df.columns:
+                continue
+            part = df[["entity_id", "component_index"]].copy()
+            part["modifier"] = df["modifier"] if "modifier" in df.columns else pd.NA
+            part["component_type"] = name
+            part["declares_type_name"] = pd.NA
+            type_flags = flags_by_type_name.get(name, {})
+            for flag in flag_names:
+                part[flag] = type_flags.get(flag, False)
+            parts.append(part)
+
+        if not parts:
+            self._component_instances_cache = ibis.memtable([], schema=base_schema)
+            return self._component_instances_cache
+
+        combined = pd.concat(parts, ignore_index=True)
+        combined["modifier"] = combined["modifier"].astype(pd.StringDtype())
+        combined["declares_type_name"] = combined["declares_type_name"].astype(pd.StringDtype())
+        combined["component_type"] = combined["component_type"].astype(pd.StringDtype())
+        for flag in flag_names:
+            combined[flag] = combined[flag].astype(bool)
+        self._component_instances_cache = ibis.memtable(combined)
+        return self._component_instances_cache
+
     def component_type_overview(self) -> GetterResult:
         """Return one row per declared component type: its name
         (``declares_type_name``), description (if it has one), how many
@@ -865,13 +953,12 @@ class Registry:
         description still gets a row here with a null description,
         instead of silently vanishing.
 
-        Entity counts come from ``component_instance`` (the full
-        per-instance inventory ``component_type`` used to double as,
-        before task #14 split it out): grouped by its own
-        ``component_type`` column (the declared type's name) and counted
-        by distinct ``entity_id``, not raw row count -- an entity with
-        multiple instances of the same type (e.g. SCD history) should
-        still count once.
+        Entity counts come from ``component_instances()`` (the full
+        per-instance inventory, derived on demand rather than stored --
+        see that method): grouped by its own ``component_type`` column
+        (the declared type's name) and counted by distinct ``entity_id``,
+        not raw row count -- an entity with multiple instances of the
+        same type (e.g. SCD history) should still count once.
 
         Returns
         -------
@@ -909,11 +996,11 @@ class Registry:
         if df.empty:
             return GetterResult(ibis.memtable([], schema=empty_schema))
 
-        if "component_instance" in self._components:
-            instance_df = self._components["component_instance"].execute()
-            entity_counts = instance_df.groupby("component_type")["entity_id"].nunique()
-        else:
-            entity_counts = pd.Series(dtype="int64")
+        instance_df = self.component_instances().execute()
+        entity_counts = (
+            instance_df.groupby("component_type")["entity_id"].nunique()
+            if not instance_df.empty else pd.Series(dtype="int64")
+        )
         df["entity_count"] = (
             df["component_type.declares_type_name"].map(entity_counts).fillna(0).astype("int64")
         )
@@ -974,18 +1061,18 @@ class Registry:
         by_type: dict[str, pd.DataFrame] = {}
         if resolved_id is not None:
             for comp_type in self.component_types:
-                # "component_type"/"component_instance" aren't entity data
-                # -- they're the registry's own bookkeeping (see
-                # emc2p.dataflows.etl.load_manifest.component_type_table/
-                # component_instance_table): which component type(s) this
-                # entity declares, and which component instance(s) it
-                # carries (one row per instance, each shaped identically:
-                # derived/implicit_parent/skip_on_export). Every other
-                # section already names its own type in its "## " heading,
-                # so showing either of these too is pure noise: a run of
-                # near-identical, hard-to-tell-apart blocks in front of the
-                # entity's actual data rather than after it.
-                if comp_type in ("component_type", "component_instance"):
+                # "component_type" isn't entity data -- it's the
+                # registry's own bookkeeping of which component type(s)
+                # this entity declares (see
+                # emc2p.dataflows.etl.load_manifest.component_type_table),
+                # each shaped identically: derived/implicit_parent/
+                # skip_on_export. Every other section already names its
+                # own type in its "## " heading, so showing this too is
+                # pure noise. (The full per-instance inventory --
+                # `component_instances()` -- isn't in `component_types`
+                # at all, being a derived view rather than a stored
+                # component table, so it never reaches this loop.)
+                if comp_type == "component_type":
                     continue
                 try:
                     df = self.view(comp_type, resolved_id).to_pandas()

@@ -581,40 +581,33 @@ def entity_id_table(yaml_spine: ir.Table, csv_spine: ir.Table = None) -> ir.Tabl
 
 
 
-def component_instance_table(
-    keyvalue_store: ir.Table,
-    csv_component_tables: dict[str, ir.Table] = None,
-) -> ir.Table:
-    """Build one row per component instance across every component type in
-    the registry -- the full, unfiltered inventory, including instances of
-    ``component_type`` itself (a ``- component_type: {...}`` tag is still a
-    component instance, the same as any other component).
+def component_type_table(keyvalue_store: ir.Table) -> ir.Table:
+    """Build the component type DEFINITIONS table: one row per declared
+    ``component_type`` tag (a ``- component_type: {...}`` entry), each
+    carrying the flags it declares about itself (``derived``,
+    ``skip_on_export``, ``implicit_parent``, as of this writing) and
+    ``declares_type_name`` -- the human-readable name of the type it
+    declares (the owning entity's own ``display_key``).
 
-    Also carries component_type's own declared boolean flags (``derived``,
-    ``skip_on_export``, ``implicit_parent``, as of this writing), and a
-    ``declares_type_name`` column giving each ``component_type`` tag row the
-    human-readable name of the type it declares (null on every other row).
-    See ``component_type_table`` for the definitions-only subset of this
-    table (just the ``component_type`` tag rows), which is what most
-    consumers actually want -- e.g. "every component type flagged
-    ``derived``" or "every declared component type name" -- rather than
-    this full per-instance inventory.
+    Which flags exist is itself schema-derived -- whatever bool-typed
+    ``- field: {...}`` entries the ``component_type`` schema entity
+    declares on itself in builtins.yaml (always loaded, see
+    ``_BUILTINS_DIRS``) -- rather than a hardcoded list, so a newly
+    declared flag is picked up automatically instead of silently going
+    missing until this function is also updated by hand.
 
-    Reads explicit ``component_type`` component entries from the keyvalue_store to
-    populate those flag columns on the metadata table. Which flags exist is
-    itself schema-derived -- whatever bool-typed ``- field: {...}`` entries
-    the ``component_type`` schema entity declares on itself in builtins.yaml
-    (always loaded, see ``_BUILTINS_DIRS``) -- rather than a hardcoded list,
-    so a newly declared flag is picked up automatically instead of silently
-    going missing until this function is also updated by hand.
-
-    CSV-derived metadata comes from ``csv_component_tables`` (one row per CSV
-    row, i.e. one row per ``"{stem}_comp"`` component instance) rather than
-    ``csv_spine`` (one row per *file*/entity) — a whole CSV file is a single
-    entity with many component instances attached, so the two are
-    different granularities. CSV rows can never be ``component_type`` tag
-    rows (a CSV row is always an instance of its own ``"{stem}_comp"``
-    type), so their ``declares_type_name`` is always null.
+    Deliberately narrow -- just the tag rows and what they themselves
+    declare, not a general per-instance inventory across every component
+    type in the registry (see ``Registry.component_instances``, which
+    derives that on demand from the registry's own already-materialized
+    component tables plus this table's own flags/declares_type_name,
+    rather than needing it precomputed and stored here). A consumer that
+    wants "every declared component type" (e.g.
+    ``validate_components._declared_component_types``) reads this table
+    directly; before task #14 split it out, that question was answered by
+    re-deriving it from a full per-instance inventory, where every entity
+    with ANY component at all -- not just ones that actually declared a
+    ``component_type`` tag -- leaked in.
 
     Returns
     -------
@@ -649,96 +642,35 @@ def component_instance_table(
     )
 
     ct_data = df[df["component_type"] == "component_type"]
-    flagged_sets: dict[str, set[str]] = {flag: set() for flag in flag_names}
-    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the flags
-    # a given "- component_type: {...}" tag instance declares on itself.
-    # Needed so that a tag's own meta row (below) can be set from what THAT
-    # tag actually declared, instead of the isin() broadcast further down --
-    # which answers "is this row an instance of a type in {derived,
-    # skip,implicit_parent}_set", a question a tag-declaration row itself
-    # would also match whenever the literal type name "component_type" is
-    # itself a member of one of these sets (e.g. component_type's own
-    # skip_on_export: true declaration), incorrectly carrying that flag
-    # onto every OTHER entity's own component_type tag row too.
+    rows = ct_data[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
+    rows["declares_type_name"] = rows["entity_id"].map(display_keys)
+
+    # own_flags: (entity_id, component_index) -> {flag_name: bool}, the
+    # flags a given "- component_type: {...}" tag instance declares about
+    # ITSELF -- e.g. widget's own `skip_on_export: true`, not whether
+    # "component_type" (the literal type every row here is an instance
+    # of) is itself flagged.
     own_flags: dict[tuple, dict[str, bool]] = {}
     for _, row in ct_data.iterrows():
         eid = str(row["entity_id"])
         cidx = row["component_index"]
         field = str(row["field"])
-        val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
-        if field in flagged_sets:
-            own_flags.setdefault((eid, cidx), {})[field] = val
-        type_name = display_keys.get(eid, "")
-        if not type_name:
+        if field not in flag_names:
             continue
-        if field in flagged_sets and val:
-            flagged_sets[field].add(type_name)
+        val = str(row.get("value", "")).strip().lower() in ("true", "1", "yes")
+        own_flags.setdefault((eid, cidx), {})[field] = val
 
-    meta_df = df[["entity_id", "component_index", "component_type", "modifier"]].drop_duplicates().copy()
     for flag in flag_names:
-        meta_df[flag] = meta_df["component_type"].isin(flagged_sets[flag])
-
-    is_tag_row = meta_df["component_type"] == "component_type"
-    for flag in flag_names:
-        meta_df.loc[is_tag_row, flag] = meta_df.loc[is_tag_row].apply(
+        rows[flag] = rows.apply(
             lambda r, _flag=flag: own_flags.get(
                 (str(r["entity_id"]), r["component_index"]), {}
             ).get(_flag, False),
             axis=1,
         )
 
-    # declares_type_name: only tag rows actually declare a type; every
-    # other row gets null rather than re-deriving its own display_key
-    # (which would just be that row's *own* entity, not a type name it
-    # declares).
-    meta_df["declares_type_name"] = pd.NA
-    meta_df.loc[is_tag_row, "declares_type_name"] = meta_df.loc[is_tag_row, "entity_id"].map(display_keys)
-    meta_df["declares_type_name"] = meta_df["declares_type_name"].astype(pd.StringDtype())
-
-    meta_df["modifier"] = meta_df["modifier"].astype(pd.StringDtype())
-    yaml_ct = ibis.memtable(meta_df)
-
-    if not csv_component_tables:
-        return yaml_ct
-
-    csv_rows = []
-    for comp_type, table in csv_component_tables.items():
-        cdf = table.to_pandas()[["entity_id", "component_index", "modifier"]].copy()
-        cdf["component_type"] = comp_type
-        csv_rows.append(cdf)
-    csv_df = pd.concat(csv_rows, ignore_index=True)
-    for flag in flag_names:
-        csv_df[flag] = False
-    csv_df["declares_type_name"] = pd.NA
-    csv_df["declares_type_name"] = csv_df["declares_type_name"].astype(pd.StringDtype())
-    csv_df["modifier"] = csv_df["modifier"].astype(pd.StringDtype())
-    csv_df["component_type"] = csv_df["component_type"].astype(pd.StringDtype())
-    return ibis.union(yaml_ct, ibis.memtable(csv_df))
-
-
-def component_type_table(component_instance_table: ir.Table) -> ir.Table:
-    """The component type DEFINITIONS table: ``component_instance_table``
-    filtered down to just its ``component_type`` tag rows -- one row per
-    declared component type, each carrying its own declared flags
-    (``derived``/``skip_on_export``/``implicit_parent``) and
-    ``declares_type_name`` (see ``component_instance_table``).
-
-    Split out from the full per-instance inventory (task #14) so a
-    consumer that wants "every declared component type" (e.g.
-    ``validate_components._declared_component_types``) can read this
-    directly instead of re-deriving it from the full inventory, where
-    every entity with ANY component at all -- not just ones that actually
-    declared a ``component_type`` tag -- used to leak in.
-
-    Returns
-    -------
-    ir.Table
-        Columns: entity_id, component_index, component_type, modifier,
-        declares_type_name, plus one column per declared component_type flag.
-    """
-    return component_instance_table.filter(
-        component_instance_table.component_type == "component_type"
-    )
+    rows["modifier"] = rows["modifier"].astype(pd.StringDtype())
+    rows["declares_type_name"] = rows["declares_type_name"].astype(pd.StringDtype())
+    return ibis.memtable(rows)
 
 
 def component_tables(
@@ -798,7 +730,6 @@ def component_tables(
 def registry(
     entity_id_table: ir.Table,
     component_type_table: ir.Table,
-    component_instance_table: ir.Table,
     component_tables: dict[str, ir.Table],
 ) -> Registry:
     """Load the constituents of a registry into the registry object.
@@ -810,13 +741,10 @@ def registry(
     component_type_table : ir.Table
         The component type DEFINITIONS table: one row per declared
         component_type tag (entity_id, component_index, component_type,
-        modifier, declares_type_name, plus flag columns). See
-        ``component_instance_table`` for the full per-instance inventory
-        this used to double as, before task #14 split it out.
-    component_instance_table : ir.Table
-        One row per component instance across every component type in the
-        registry (entity_id, component_index, component_type, modifier,
-        declares_type_name, plus flag columns) -- the full inventory.
+        modifier, declares_type_name, plus flag columns). The full
+        per-instance inventory across every component type is *not*
+        stored here -- see ``Registry.component_instances``, which
+        derives it on demand instead.
     component_tables : dict[str, ir.Table]
         Per-component-type data tables.
 
@@ -828,15 +756,13 @@ def registry(
     conn = ibis.duckdb.connect()
     conn.create_table("entity_id", entity_id_table.to_pyarrow(), overwrite=True)
     conn.create_table("component_type", component_type_table.to_pyarrow(), overwrite=True)
-    conn.create_table("component_instance", component_instance_table.to_pyarrow(), overwrite=True)
     components = {
         "entity_id": conn.table("entity_id"),
         "component_type": conn.table("component_type"),
-        "component_instance": conn.table("component_instance"),
     }
     for comp_type, table in component_tables.items():
         if comp_type == "component_type":
-            continue  # flags already incorporated into component_type_table/component_instance_table
+            continue  # flags already incorporated into component_type_table
         if comp_type == "entity_id":
             continue  # the spine table already comes from entity_id_table;
             # a bare `entity_id` component here would clobber it.

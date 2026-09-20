@@ -136,7 +136,7 @@ def time_filled_registry(
 
     if existing_registry is not None and "field" in existing_registry._components and "entity_id" in existing_registry._components:
         for ctype in components:
-            if ctype in time_fields or ctype in ("field", "entity_id", "component_type", "component_instance", "parent"):
+            if ctype in time_fields or ctype in ("field", "entity_id", "component_type", "parent"):
                 continue
             existing_field = existing_registry._time_dimension_field(ctype)
             if existing_field is not None:
