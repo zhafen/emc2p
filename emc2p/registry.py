@@ -960,6 +960,9 @@ class Registry:
         not raw row count -- an entity with multiple instances of the
         same type (e.g. SCD history) should still count once.
 
+        Rows are sorted by ``entity_count`` descending, so the types
+        actually in heaviest use surface first.
+
         Returns
         -------
         GetterResult
@@ -1006,6 +1009,7 @@ class Registry:
         )
 
         df["origin"] = df["entity_id.filepath"].apply(_origin_from_filepath)
+        df = df.sort_values("entity_count", ascending=False).reset_index(drop=True)
 
         return GetterResult(ibis.memtable(df))
 

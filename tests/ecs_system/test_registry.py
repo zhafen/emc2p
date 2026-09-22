@@ -1294,6 +1294,10 @@ class TestComponentTypeOverview:
         result = registry.component_type_overview()
         assert result.to_pandas().empty
 
+    def test_sorted_by_entity_count_descending_by_default(self):
+        df = self._registry().component_type_overview().to_pandas()
+        assert df["component_type.declares_type_name"].tolist() == ["widget", "gadget"]
+
     def test_composes_with_to_exploded_yaml(self):
         """The overview is a plain GetterResult -- task #15's display
         helper works on it with no special-casing."""
