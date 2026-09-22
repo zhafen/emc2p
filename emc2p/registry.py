@@ -121,6 +121,20 @@ class GetterResult:
         uses, just applied to an arbitrary result instead of one
         entity's own data.
 
+        Despite the name, this is not EC-format YAML and isn't meant to
+        be -- it only borrows YAML's `key: value` indentation for
+        readability. Real EC yaml nests entity -> list of components ->
+        that component's own fields (see manifest/builtins.yaml); this
+        instead keys each block by row ordinal ("row 0", "row 1", ...)
+        and flattens whatever columns the result actually has --
+        dotted "table.field" join columns, computed ones like
+        `entity_count`, columns spanning several component types in one
+        row -- into one block, with no entity/component nesting at all.
+        It's a generic tabular-result renderer for any GetterResult, not
+        an entity serializer, and its output can't be round-tripped back
+        through `load_yaml`/`update()` the way a real EC yaml file can --
+        `export_manifest` is the method for that.
+
         Args:
             limit: Show at most this many rows, with a trailing note of
                 how many more weren't shown. None (default) shows every
@@ -501,6 +515,13 @@ class Registry:
         self, component_type: str | list[str], entity: str | list[str] | None = None
     ) -> GetterResult:
         """Return the joined data for the given component type(s), as a GetterResult.
+
+        For a join this can't express -- more than a couple of component
+        types, a computed aggregate, an arbitrary filter -- see `sql`
+        instead; that trades away this method's automatic alias
+        resolution and display_alias joining for full relational
+        expressiveness. See `sql`'s own docstring for the fuller
+        comparison.
 
         Args:
             component_type: A component type name, a dotted "table.field"
@@ -1026,6 +1047,30 @@ class Registry:
         entity's type, description, and instance count) is exactly the
         kind of question this makes trivial to ask ad hoc.
 
+        Where this sits relative to `view`/`view_entities`/`view_entity`:
+        those three are fixed-shape convenience methods over the two
+        axes almost every lookup needs -- "these component type(s), any
+        entity" (`view`) or "this entity, every component type"
+        (`view_entities`/`view_entity`) -- and each bakes in real
+        protection for that specific shape: `view`'s `entity` argument
+        (and `view_entities`' own) resolves a hash, exact display_alias,
+        or unambiguous path fragment via `_resolve_aliases`, and
+        prepends `entity_id.display_alias` automatically; `view_entity`
+        specifically avoids the combinatorial fan-out a naive multi-type
+        join produces for an entity with real (e.g. SCD) history in more
+        than one of them, by querying one component type at a time
+        instead of joining them together. `sql` has none of that built
+        in -- it's the escape hatch for a shape those two axes can't
+        express (an arbitrary filter, a computed aggregate, a join across
+        more than the couple of types `view` is built to handle) or would
+        take several round trips to compose, not a faster way to do what
+        they already do well. A caller wanting an entity by alias here
+        has to resolve it themselves first (`get_entity_id`) or join
+        against `entity_id.display_alias` directly; a naive join across
+        more than one many-rows-per-entity component type can fan out
+        the same way `view_entities` warns about, since nothing here
+        stops it.
+
         Deliberately read-only: `update()`'s validated load/derive
         pipeline (hashing, dedup, schema checks) is the only supported
         way to write, so anything but a single SELECT (or WITH ...
@@ -1102,7 +1147,9 @@ class Registry:
         what view_entities' full-history join does. Querying one
         component type at a time, each already filtered to this entity,
         avoids that: every historical row for every component type is
-        shown, without cross-multiplying them against each other.
+        shown, without cross-multiplying them against each other. `sql`
+        has no equivalent protection -- a naive multi-table join there
+        can fan out exactly this way.
 
         Args:
             entity_id: Entity hash, display_alias, or path fragment identifying the

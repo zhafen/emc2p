@@ -193,6 +193,16 @@ class RegistrarSessions:
         SELECT (or WITH ... SELECT) statement; write through
         update_registry instead.
 
+        Unlike view_registry/view_entity, this does no entity-alias
+        resolution and no fan-out protection: an entity is only its raw
+        entity_id hash here (join against entity_id's own display_alias
+        column to filter/show by name instead), and a naive join across
+        more than one component type where an entity can have several
+        rows (e.g. history) can multiply rows the same way a hand-written
+        join would. Reach for view_registry/view_entity first for a
+        single component type or a single entity's own data; reach for
+        this once you need a shape those can't express.
+
         Args:
             query: A SQL SELECT (or WITH ... SELECT) statement.
         """
