@@ -88,6 +88,21 @@ class TestRegistrarSessions:
         with pytest.raises(ValueError, match="widget_a"):
             sessions.update_registry(session, "widget_a:\n    status:\n        value: active\n")
 
+    def test_sql_queries_a_component_table_and_returns_markdown(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        sessions.open(session, _db_url(tmp_path), manifest_dir=STATUS_BOARD_SCENARIO_DIR)
+        sessions.update_registry(session, "widget_a:\n    - status:\n        value: active\n")
+        result = sessions.sql(session, "SELECT value FROM status")
+        assert "active" in result
+
+    def test_sql_rejects_a_write_statement(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        sessions.open(session, _db_url(tmp_path), manifest_dir=STATUS_BOARD_SCENARIO_DIR)
+        with pytest.raises(ValueError):
+            sessions.sql(session, "DROP TABLE status")
+
 
 class TestDispatch:
     """dispatch() is the (name, arguments) -> str shape emc2p.agents.tool_calling_loop's
@@ -115,6 +130,11 @@ class TestDispatch:
         sessions, session = self._opened(tmp_path)
         result = sessions.dispatch(session, "not_a_real_tool", {})
         assert "unknown tool" in result
+
+    def test_dispatch_routes_sql_by_name(self, tmp_path):
+        sessions, session = self._opened(tmp_path)
+        sessions.update_registry(session, "widget_a:\n    - status:\n        value: active\n")
+        assert "active" in sessions.dispatch(session, "sql", {"query": "SELECT value FROM status"})
 
     def test_dispatch_does_not_expose_non_tool_methods(self, tmp_path):
         """get_registrar/open/... are real methods on this instance, but
@@ -311,11 +331,13 @@ class TestTimeProvider:
 
 
 class TestMount:
-    def test_mounts_all_five_tools_with_real_descriptions(self):
+    def test_mounts_all_six_tools_with_real_descriptions(self):
         server = FastMCP("test")
         RegistrarSessions().mount(server)
         tools = {t.name: t for t in server._tool_manager.list_tools()}
-        assert set(tools) == {"open_registry", "view_registry", "view_entity", "update_registry", "consolidate_review"}
+        assert set(tools) == {
+            "open_registry", "view_registry", "view_entity", "sql", "update_registry", "consolidate_review",
+        }
         for tool in tools.values():
             assert tool.description, f"{tool.name} has no description"
 
@@ -339,4 +361,4 @@ class TestMount:
         server = FastMCP("test")
         RegistrarSessions().mount(server, exclude={"open_registry"})
         tools = {t.name: t for t in server._tool_manager.list_tools()}
-        assert set(tools) == {"view_registry", "view_entity", "update_registry", "consolidate_review"}
+        assert set(tools) == {"view_registry", "view_entity", "sql", "update_registry", "consolidate_review"}

@@ -1013,6 +1013,55 @@ class Registry:
 
         return GetterResult(ibis.memtable(df))
 
+    def sql(self, query: str) -> GetterResult:
+        """Run a read-only SQL query directly against the registry's own
+        backend connection and return the result as a GetterResult.
+
+        Every component type is queryable as a plain table by name
+        (``entity_id``, ``character``, ``description``, ...) -- exactly
+        the names ``component_types`` lists -- so a caller comfortable
+        with SQL can join/filter/aggregate across them directly with
+        real relational syntax, instead of composing `view`'s own
+        narrower join engine. `component_type_overview`'s own join (an
+        entity's type, description, and instance count) is exactly the
+        kind of question this makes trivial to ask ad hoc.
+
+        Deliberately read-only: `update()`'s validated load/derive
+        pipeline (hashing, dedup, schema checks) is the only supported
+        way to write, so anything but a single SELECT (or WITH ...
+        SELECT) statement is rejected outright rather than silently
+        letting a raw INSERT/UPDATE/DROP/multi-statement query bypass it.
+
+        The query runs in whatever dialect this registry's own backend
+        speaks (DuckDB for an in-memory/test registry, Postgres for a
+        live game session's) -- plain SELECT/WHERE/JOIN/GROUP BY syntax
+        is portable across both, but backend-specific functions aren't.
+
+        Args:
+            query: A SQL SELECT (or WITH ... SELECT) statement.
+
+        Raises:
+            ValueError: If `query` isn't a single read-only SELECT/WITH
+                statement.
+        """
+        body = query.strip()
+        first_word = body.split(None, 1)[0].upper() if body else ""
+        if first_word not in ("SELECT", "WITH"):
+            raise ValueError(
+                "sql() only accepts a read-only SELECT (or WITH ... SELECT) "
+                f"statement, not {first_word or '(empty query)'!r} -- use "
+                "update() for writes."
+            )
+        if ";" in body.rstrip().rstrip(";"):
+            raise ValueError("sql() accepts exactly one statement -- remove the extra `;`.")
+        # Executed eagerly here, not returned as a lazy expression over
+        # self._con: ibis's own `.sql()` result doesn't keep the backend
+        # connection it came from alive past this call (unlike a plain
+        # `.table(name)` lookup) -- a caller that doesn't itself hold onto
+        # this Registry would otherwise hit "Connection already closed"
+        # the moment the result is actually read.
+        return GetterResult(ibis.memtable(self._con.sql(query).to_pandas()))
+
     def get_entity_id(self, entity_ref: str) -> str | None:
         """Resolve `entity_ref` to its canonical entity_id hash.
 

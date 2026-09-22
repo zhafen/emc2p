@@ -1304,3 +1304,65 @@ class TestComponentTypeOverview:
         output = self._registry().component_type_overview().to_exploded_yaml()
         assert "declares_type_name: widget" in output
         assert "declares_type_name: gadget" in output
+
+
+class TestSql:
+    """Tests for Registry.sql -- arbitrary read-only SQL against the
+    registry's own component tables."""
+
+    def _registry(self):
+        return Registry.from_component_rows({
+            "entity_id": [
+                {"entity_id": "e1", "value": "e1", "display_alias": "widget_a"},
+                {"entity_id": "e2", "value": "e2", "display_alias": "widget_b"},
+            ],
+            "widget": [
+                {"entity_id": "e1", "component_index": 0, "value": "hello"},
+                {"entity_id": "e2", "component_index": 0, "value": "world"},
+            ],
+        })
+
+    def test_select_queries_a_component_table_by_name(self):
+        df = self._registry().sql("SELECT * FROM widget ORDER BY value").to_pandas()
+        assert df["value"].tolist() == ["hello", "world"]
+
+    def test_supports_joins_across_component_tables(self):
+        df = self._registry().sql(
+            "SELECT e.display_alias, w.value FROM entity_id e "
+            "JOIN widget w ON e.entity_id = w.entity_id ORDER BY e.display_alias"
+        ).to_pandas()
+        assert df["display_alias"].tolist() == ["widget_a", "widget_b"]
+
+    def test_supports_a_with_clause(self):
+        df = self._registry().sql(
+            "WITH counted AS (SELECT count(*) AS n FROM widget) SELECT n FROM counted"
+        ).to_pandas()
+        assert df["n"].iloc[0] == 2
+
+    def test_is_case_insensitive_on_the_leading_keyword(self):
+        df = self._registry().sql("select value from widget order by value").to_pandas()
+        assert df["value"].tolist() == ["hello", "world"]
+
+    def test_composes_with_to_exploded_yaml(self):
+        output = self._registry().sql("SELECT * FROM widget ORDER BY value").to_exploded_yaml()
+        assert "value: hello" in output
+
+    @pytest.mark.parametrize("query", [
+        "DROP TABLE widget",
+        "DELETE FROM widget",
+        "UPDATE widget SET value = 'x'",
+        "INSERT INTO widget VALUES (1)",
+        "",
+        "   ",
+    ])
+    def test_rejects_anything_but_select_or_with(self, query):
+        with pytest.raises(ValueError):
+            self._registry().sql(query)
+
+    def test_rejects_a_second_statement_after_a_semicolon(self):
+        with pytest.raises(ValueError):
+            self._registry().sql("SELECT * FROM widget; DROP TABLE widget")
+
+    def test_a_single_trailing_semicolon_is_fine(self):
+        df = self._registry().sql("SELECT * FROM widget ORDER BY value;").to_pandas()
+        assert len(df) == 2

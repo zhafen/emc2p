@@ -37,7 +37,9 @@ from emc2p.validate_write import CONSOLIDATION_GUIDANCE
 INSTRUCTIONS = (
     "You have direct access to an entity-component registry. Call open_registry "
     "once, at the beginning, with the database URL you were given. Then "
-    "view_registry/view_entity to look up what's already recorded, and "
+    "view_registry/view_entity to look up what's already recorded, sql for anything "
+    "relational those two can't express (filtering, joining across component types, "
+    "aggregating -- every component type is a plain table, queryable by name), and "
     "update_registry to record new facts -- entity-first YAML, each component as a "
     "list item (a leading `- `) to attach to an entity: `widget_a:\\n    - status:\\n"
     "        value: active` merges into the same widget_a already in the registry. "
@@ -53,7 +55,7 @@ SOURCE_KEY = "session"
 
 # The plain-session methods `dispatch()` (below) allows calling by name --
 # every other method/attribute on the instance stays unreachable that way.
-_DISPATCHABLE_METHODS = {"view_registry", "view_entity", "update_registry", "consolidate_review"}
+_DISPATCHABLE_METHODS = {"view_registry", "view_entity", "update_registry", "consolidate_review", "sql"}
 
 
 class RegistrarSessions:
@@ -177,6 +179,25 @@ class RegistrarSessions:
         """
         registrar = self.get_registrar(session)
         return registrar.view_entity(entity_id, format="markdown")
+
+    def sql(self, session, query: str) -> str:
+        """Run a read-only SQL SELECT against the registry's own component
+        tables and return the result as a markdown table.
+
+        Every component type is a plain table, queryable by name
+        (entity_id, character, description, ...) -- see view_registry's
+        own component_type argument for the list. Prefer this over
+        view_registry/view_entity for anything relational -- filtering,
+        joining across component types, aggregating -- that those
+        narrower tools can't express. Rejects anything but a single
+        SELECT (or WITH ... SELECT) statement; write through
+        update_registry instead.
+
+        Args:
+            query: A SQL SELECT (or WITH ... SELECT) statement.
+        """
+        registrar = self.get_registrar(session)
+        return registrar.sql(query).to_pandas().fillna("null").to_markdown()
 
     def consolidate_review(self, session, limit: int = 20) -> str:
         """Show every component type recorded so far, for the caller to review and consolidate.
@@ -354,6 +375,9 @@ class RegistrarSessions:
         def view_entity(entity_id: str, ctx: Context) -> str:
             return self.view_entity(ctx.request_context.session, entity_id)
 
+        def sql(query: str, ctx: Context) -> str:
+            return self.sql(ctx.request_context.session, query)
+
         def update_registry(
             yaml_string: str | None = None,
             *,
@@ -372,6 +396,7 @@ class RegistrarSessions:
             "open_registry": (open_registry, self.open.__doc__),
             "view_registry": (view_registry, self.view_registry.__doc__),
             "view_entity": (view_entity, self.view_entity.__doc__),
+            "sql": (sql, self.sql.__doc__),
             "update_registry": (update_registry, self.update_registry.__doc__),
             "consolidate_review": (consolidate_review, self.consolidate_review.__doc__),
         }
