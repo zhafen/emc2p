@@ -57,6 +57,10 @@ main { padding-block: 8px 40px; padding-left: max(16px, env(safe-area-inset-left
 .meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { flex: none; font: 600 10px/1 var(--font-mono); letter-spacing: .05em; padding: 3px 5px; border-radius: 4px; border: 1px solid currentColor; }
 .b-REQ { color: var(--e-requirement); } .b-SOL { color: var(--e-solution); } .b-TYPE { color: var(--accent); }
+.details { display: none; position: absolute; right: 8px; top: 7px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--surface); font-size: 12px; font-weight: 500; cursor: pointer; }
+.row.sel .details { display: block; }
+.row.sel .name { padding-right: 70px; }
 .row.sel .card { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .row.nb .card { border-color: var(--accent); }
 .has-sel .row:not(.sel):not(.nb) .card { opacity: .55; }
@@ -139,9 +143,13 @@ DATA.nodes.forEach(n => {
   n.pp = p ? p.fields.parent_eid : null;
   if (n.pp) byId.get(n.pp).kids.push(n);
 });
-const cmp = (a, b) => (a.file || '').localeCompare(b.file || '') || a.path.localeCompare(b.path);
+const size = (n, st = new Set()) => { if (n.size != null) return n.size; if (st.has(n.id)) return 0; st.add(n.id); return n.size = 1 + n.kids.reduce((t, k) => t + size(k, st), 0); };
+DATA.nodes.forEach(n => size(n));
+const FIRST = 'docs/manifest/emc2p.yaml';
+const bySize = (a, b) => b.size - a.size || a.name.localeCompare(b.name);
+const cmp = (a, b) => (b.file === FIRST) - (a.file === FIRST) || (a.file || '').localeCompare(b.file || '') || bySize(a, b);
 const order = [], seen = new Set();
-const visit = (n, d, g) => { if (seen.has(n.id)) return; seen.add(n.id); n.depth = d; n.group = g; order.push(n); n.kids.sort(cmp).forEach(k => visit(k, d + 1, g)); };
+const visit = (n, d, g) => { if (seen.has(n.id)) return; seen.add(n.id); n.depth = d; n.group = g; order.push(n); n.kids.sort(bySize).forEach(k => visit(k, d + 1, g)); };
 DATA.nodes.filter(n => !n.pp).sort(cmp).forEach(n => visit(n, 0, n.file));
 DATA.nodes.filter(n => !seen.has(n.id)).sort(cmp).forEach(n => visit(n, 0, n.file));
 
@@ -176,7 +184,7 @@ order.forEach(n => {
   }
   const r = document.createElement('div'); r.className = 'row'; r.dataset.id = n.id;
   const types = [...new Set(n.components.map(c => c.type))].join(' · ');
-  r.innerHTML = `<button class="card" data-id="${n.id}"><span class="top">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}<span class="name">${esc(n.name)}</span></span><span class="meta">${esc(types)}</span></button>`;
+  r.innerHTML = `<button class="card" data-id="${n.id}"><span class="top">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}<span class="name">${esc(n.name)}</span></span><span class="meta">${esc(types)}</span></button><button class="details" data-details="${n.id}">Details</button>`;
   rowEl[n.id] = r; frag.appendChild(r);
 });
 const emptyEl = document.createElement('div'); emptyEl.className = 'empty'; emptyEl.textContent = 'No entities match. Clear the search or pick another file.'; emptyEl.hidden = true;
@@ -266,7 +274,7 @@ function overview() {
   return `<div class="s-name">Overview</div><div class="s-path">emc2p builtins + docs/manifest</div>
     <h2>Totals</h2><div class="ov"><div><span>Entities</span><span>${DATA.nodes.length}</span></div><div><span>Links</span><span>${DATA.edges.length}</span></div></div>
     <h2>Components by type</h2><div class="ov">${Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([t, c]) => `<div><span>${esc(t)}</span><span>${c}</span></div>`).join('')}</div>
-    <h2>Using it</h2><div class="text">Tap an entity to see its components. Lines in the left gutter are relations: each lane ends in an arrow at the target, with a stub to every entity pointing at it.</div>`;
+    <h2>Using it</h2><div class="text">Tap an entity to highlight its links, then Details to see its components. Lines in the left gutter are relations: each lane ends in an arrow at the target, with a stub to every entity pointing at it.</div>`;
 }
 function renderSheet() {
   const n = byId.get(state.sel);
@@ -278,15 +286,15 @@ function renderSheet() {
     <h2>Referenced by (${n.in.length})</h2>${n.in.length ? Object.entries(inc).map(([t, ids]) => `<div class="refs"><span class="reftype">${esc(t)}</span>${ids.map(link).join('')}</div>`).join('') : '<span class="tag">nothing points here</span>'}`;
   body.scrollTop = 0;
 }
-function select(id, scroll) {
+function select(id, scroll, details) {
   if (id && !byId.has(id)) id = null;
   if (id && rowEl[id].hidden) { state.q = ''; document.getElementById('search').value = ''; state.file = null; chips.querySelectorAll('.file').forEach(c => c.setAttribute('aria-pressed', !c.dataset.file)); applyFilter(); }
   state.sel = id;
   document.querySelectorAll('.row.sel, .row.nb').forEach(r => r.classList.remove('sel', 'nb'));
   document.body.classList.toggle('has-sel', !!id);
-  document.body.classList.toggle('sheet-open', !!id);
-  sheet.classList.toggle('open', !!id);
-  if (!id) sheet.classList.remove('tall');
+  document.body.classList.toggle('sheet-open', !!(id && details));
+  sheet.classList.toggle('open', !!(id && details));
+  if (!(id && details)) sheet.classList.remove('tall');
   if (id) {
     rowEl[id].classList.add('sel');
     const n = byId.get(id);
@@ -298,14 +306,19 @@ function select(id, scroll) {
     scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 }
+let wantScroll = false;
 document.addEventListener('click', e => {
-  const b = e.target.closest('[data-id]'); if (!b) return;
+  const d = e.target.closest('[data-details]');
+  if (d) { location.hash = 'd-' + d.dataset.details; return; }
+  const b = e.target.closest('[data-id]');
+  if (!b) { if (state.sel && e.target.closest('main')) location.hash = ''; return; }
   const id = b.dataset.id;
-  location.hash = (state.sel === id && b.classList.contains('card')) ? '' : 'e-' + id;
+  if (b.classList.contains('card')) { location.hash = state.sel === id ? '' : 'e-' + id; return; }
+  wantScroll = true; location.hash = 'd-' + id;
 });
-function fromHash(scroll) { const m = location.hash.match(/^#e-(\w+)$/); select(m ? m[1] : null, scroll); }
-addEventListener('hashchange', () => fromHash(true));
-document.getElementById('close').addEventListener('click', () => location.hash = '');
+function fromHash(scroll) { const m = location.hash.match(/^#([ed])-(\w+)$/); select(m ? m[2] : null, scroll, m && m[1] === 'd'); }
+addEventListener('hashchange', () => { fromHash(wantScroll); wantScroll = false; });
+document.getElementById('close').addEventListener('click', () => location.hash = state.sel ? 'e-' + state.sel : '');
 const handle = document.getElementById('handle');
 let y0 = null;
 handle.addEventListener('pointerdown', e => { y0 = e.clientY; handle.setPointerCapture(e.pointerId); });
