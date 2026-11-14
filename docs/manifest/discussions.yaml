@@ -1,0 +1,46 @@
+file_info:
+    - description: >
+          Design-conversation topics recorded as entities, with each
+          question still open for the user stored as a ((question))
+          component on its topic. Sub-topics nest under their parent
+          topic. The entity-graph viewer badges entities with open
+          questions.
+    - file_info
+
+entity_graph_viewer:
+    data:
+        - description: >
+              Mobile entity-graph viewer (apps/entity_graph) built from
+              emc2p's builtins plus docs/manifest.
+    viewer_layout:
+        - description: >
+              Entities drawn as stacked rectangles, with edges routed
+              through a left gutter.
+    viewer_ordering:
+        - description: >
+              emc2p.yaml's entities come first; within a level, entities
+              with the most descendants come first.
+    viewer_selection:
+        - description: >
+              Selecting an entity only highlights it and its edges rather
+              than filtering the graph.
+    doubled_edges:
+        - description: >
+              A pair linked by both parent and requirement/solution used
+              to draw two overlapping edges; now drawn as one line.
+    live_registrar_vs_per_build_ingestion:
+        - description: >
+              Whether the viewer should read from a live Registrar (e.g.
+              via MCP update_registry) or keep re-ingesting the manifest
+              on every build.
+    builtin_definitions_visibility:
+        - description: >
+              Whether builtin component-type definitions should be shown
+              alongside project entities.
+        - question: Hide builtin component definitions by default?
+    wide_screen_side_panel:
+        - description: >
+              How the side panel behaves on wide screens.
+        - question: >
+              On wide screens, should the side panel wait for "Details"
+              like it does on mobile?
