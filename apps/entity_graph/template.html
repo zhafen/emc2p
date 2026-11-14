@@ -214,7 +214,10 @@ function draw() {
   const G = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gutter')) || 64;
   const y = new Map();
   order.forEach(n => { const r = rowEl[n.id]; if (!r.hidden) y.set(n.id, r.offsetTop + PORT); });
-  const edges = DATA.edges.filter(e => state.etypes.has(e.type) && y.has(e.source) && y.has(e.target) && e.source !== e.target);
+  const vis = DATA.edges.filter(e => state.etypes.has(e.type) && y.has(e.source) && y.has(e.target) && e.source !== e.target);
+  // A parent edge whose pair also has a visible requirement/solution edge is drawn once, as the latter.
+  const typed = new Set(vis.filter(e => e.type !== 'parent').map(e => e.source + '>' + e.target));
+  const edges = vis.filter(e => e.type !== 'parent' || !typed.has(e.source + '>' + e.target));
   const bundles = new Map();
   edges.forEach(e => { const k = e.target + '|' + e.type; if (!bundles.has(k)) bundles.set(k, { target: e.target, type: e.type, src: [] }); bundles.get(k).src.push(e.source); });
   const bs = [...bundles.values()];
