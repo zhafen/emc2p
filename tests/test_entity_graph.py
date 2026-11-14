@@ -3,6 +3,7 @@
 import json
 
 import pandas as pd
+import pytest
 
 from emc2p.entity_graph import registry_to_graph, render_graph_html, write_graph
 
@@ -75,3 +76,13 @@ def test_write_graph_json_vs_html(tmp_path):
     assert set(json.loads(j.read_text())) == {"nodes", "edges"}
     h = write_graph(_registry(), tmp_path / "sub" / "g.html")
     assert "<title>Entity Graph</title>" in h.read_text()
+
+
+@pytest.mark.slow
+def test_question_component_defaults_to_open(tmp_path):
+    from emc2p.registrar import Registrar
+
+    (tmp_path / "t.yaml").write_text("topic:\n    - question: Ship it?\n")
+    nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
+    q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
+    assert q["fields"] == {"value": "Ship it?", "status": "open"}

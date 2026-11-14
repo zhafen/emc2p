@@ -6,7 +6,7 @@
 :root {
   --bg: #eef1f5; --surface: #ffffff; --ink: #18212b; --muted: #5b6876; --line: #d3dae2;
   --accent: #2f4fd6; --accent-soft: #e2e8ff;
-  --e-parent: #7d8b9b; --e-requirement: #b8620a; --e-solution: #17845f; --e-other: #8a5cc2;
+  --e-parent: #7d8b9b; --e-requirement: #b8620a; --e-solution: #17845f; --e-other: #8a5cc2; --q: #c2334d;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
@@ -15,11 +15,11 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
-  --e-parent: #6b7a8a; --e-requirement: #e39b4d; --e-solution: #3cc39a; --e-other: #b48ae8; color-scheme: dark } }
+  --e-parent: #6b7a8a; --e-requirement: #e39b4d; --e-solution: #3cc39a; --e-other: #b48ae8; --q: #ff7a8f; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
-  --e-parent: #6b7a8a; --e-requirement: #e39b4d; --e-solution: #3cc39a; --e-other: #b48ae8; color-scheme: dark }
+  --e-parent: #6b7a8a; --e-requirement: #e39b4d; --e-solution: #3cc39a; --e-other: #b48ae8; --q: #ff7a8f; color-scheme: dark }
 @media (min-width: 600px) { :root { --gutter: 120px } }
 
 body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; }
@@ -56,7 +56,7 @@ main { padding-block: 8px 40px; padding-left: max(16px, env(safe-area-inset-left
 .name { font: 500 14px/20px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { flex: none; font: 600 10px/1 var(--font-mono); letter-spacing: .05em; padding: 3px 5px; border-radius: 4px; border: 1px solid currentColor; }
-.b-REQ { color: var(--e-requirement); } .b-SOL { color: var(--e-solution); } .b-TYPE { color: var(--accent); }
+.b-REQ { color: var(--e-requirement); } .b-SOL { color: var(--e-solution); } .b-TYPE { color: var(--accent); } .b-Q { color: var(--q); }
 .details { display: none; position: absolute; right: 8px; top: 7px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent);
   background: var(--accent); color: var(--surface); font-size: 12px; font-weight: 500; cursor: pointer; }
 .row.sel .details { display: block; }
@@ -133,6 +133,8 @@ const has = (n, t) => n.components.some(c => c.type === t);
 const fileLabel = f => !f ? 'unknown' : f.startsWith('builtins.') ? f.slice(9) + ' (builtin)' : f.split('/').pop();
 const edgeColor = t => ['parent','requirement','solution'].includes(t) ? `var(--e-${t})` : 'var(--e-other)';
 const kinds = n => [has(n,'requirement')&&'REQ', has(n,'solution')&&'SOL', has(n,'component_type')&&'TYPE'].filter(Boolean);
+const openQs = n => n.components.filter(c => c.type === 'question' && c.fields.status !== 'answered').length;
+const qBadge = n => { const k = openQs(n); return k ? `<span class="badge b-Q" title="${k} open question${k > 1 ? 's' : ''}">?${k}</span>` : ''; };
 const descOf = n => (n.components.find(c => c.type === 'description') || {fields:{}}).fields.value || '';
 
 DATA.nodes.forEach(n => { n.out = []; n.in = []; n.kids = []; });
@@ -184,7 +186,7 @@ order.forEach(n => {
   }
   const r = document.createElement('div'); r.className = 'row'; r.dataset.id = n.id;
   const types = [...new Set(n.components.map(c => c.type))].join(' · ');
-  r.innerHTML = `<button class="card" data-id="${n.id}"><span class="top">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}<span class="name">${esc(n.name)}</span></span><span class="meta">${esc(types)}</span></button><button class="details" data-details="${n.id}">Details</button>`;
+  r.innerHTML = `<button class="card" data-id="${n.id}"><span class="top">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}${qBadge(n)}<span class="name">${esc(n.name)}</span></span><span class="meta">${esc(types)}</span></button><button class="details" data-details="${n.id}">Details</button>`;
   rowEl[n.id] = r; frag.appendChild(r);
 });
 const emptyEl = document.createElement('div'); emptyEl.className = 'empty'; emptyEl.textContent = 'No entities match. Clear the search or pick another file.'; emptyEl.hidden = true;
@@ -275,7 +277,7 @@ function renderComp(c) {
 function overview() {
   const counts = {}; DATA.nodes.forEach(n => n.components.forEach(c => counts[c.type] = (counts[c.type] || 0) + 1));
   return `<div class="s-name">Overview</div><div class="s-path">emc2p builtins + docs/manifest</div>
-    <h2>Totals</h2><div class="ov"><div><span>Entities</span><span>${DATA.nodes.length}</span></div><div><span>Links</span><span>${DATA.edges.length}</span></div></div>
+    <h2>Totals</h2><div class="ov"><div><span>Entities</span><span>${DATA.nodes.length}</span></div><div><span>Links</span><span>${DATA.edges.length}</span></div><div><span>Open questions</span><span>${DATA.nodes.reduce((a, n) => a + openQs(n), 0)}</span></div></div>
     <h2>Components by type</h2><div class="ov">${Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([t, c]) => `<div><span>${esc(t)}</span><span>${c}</span></div>`).join('')}</div>
     <h2>Using it</h2><div class="text">Tap an entity to highlight its links, then Details to see its components. Lines in the left gutter are relations: each lane ends in an arrow at the target, with a stub to every entity pointing at it.</div>`;
 }
@@ -283,7 +285,7 @@ function renderSheet() {
   const n = byId.get(state.sel);
   if (!n) { body.innerHTML = overview(); return; }
   const inc = {}; n.in.forEach(e => (inc[e.type] = inc[e.type] || []).push(e.source));
-  body.innerHTML = `<div class="refs">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}</div>
+  body.innerHTML = `<div class="refs">${kinds(n).map(k => `<span class="badge b-${k}">${k}</span>`).join('')}${qBadge(n)}</div>
     <div class="s-name">${esc(n.name)}</div><div class="s-path">${esc(n.path)}</div>
     <h2>Components (${n.components.length})</h2>${n.components.map(renderComp).join('')}
     <h2>Referenced by (${n.in.length})</h2>${n.in.length ? Object.entries(inc).map(([t, ids]) => `<div class="refs"><span class="reftype">${esc(t)}</span>${ids.map(link).join('')}</div>`).join('') : '<span class="tag">nothing points here</span>'}`;
