@@ -48,7 +48,7 @@ where = ["."]
 include = ["emc2p*"]
 
 [tool.setuptools.package-data]
-emc2p = ["builtins/*.yaml"]
+emc2p = ["builtins/*.yaml", "entity_graph/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

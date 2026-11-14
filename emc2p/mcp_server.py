@@ -253,6 +253,18 @@ class RegistrarSessions:
 
         return self._preview(registrar, yaml_string)
 
+    def export_graph(self, session, output_path: str) -> str:
+        """Write this session's live registry as an entity graph to `output_path`.
+
+        A `.json` path gets the raw `{"nodes", "edges"}` data; any other
+        path gets a standalone HTML viewer. Reflects the registry's current
+        state, including writes not yet exported to YAML.
+        """
+        from emc2p.entity_graph import write_graph
+
+        path = write_graph(self.get_registrar(session).registry, output_path)
+        return f"Wrote entity graph to {path}."
+
     def dispatch(self, session, name: str, arguments: dict[str, Any]) -> str:
         """Route a model-shaped tool call (a name plus a flat arguments dict) to the matching method above.
 
@@ -366,6 +378,9 @@ class RegistrarSessions:
         def consolidate_review(ctx: Context, limit: int = 20) -> str:
             return self.consolidate_review(ctx.request_context.session, limit)
 
+        def export_graph(output_path: str, ctx: Context) -> str:
+            return self.export_graph(ctx.request_context.session, output_path)
+
         # description passed explicitly -- Tool.from_function reads it once at
         # registration time, before a wrapper's own docstring could be set.
         tools = {
@@ -374,6 +389,7 @@ class RegistrarSessions:
             "view_entity": (view_entity, self.view_entity.__doc__),
             "update_registry": (update_registry, self.update_registry.__doc__),
             "consolidate_review": (consolidate_review, self.consolidate_review.__doc__),
+            "export_graph": (export_graph, self.export_graph.__doc__),
         }
         for name, (fn, description) in tools.items():
             if name not in exclude:

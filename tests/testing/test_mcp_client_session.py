@@ -142,6 +142,7 @@ class TestRealMcpRoundTrip:
             "mcp__emc2p__view_entity",
             "mcp__emc2p__update_registry",
             "mcp__emc2p__consolidate_review",
+            "mcp__emc2p__export_graph",
         }
 
     def test_allowed_tools_filters_to_the_matching_pattern(self, tmp_path):
