@@ -149,7 +149,8 @@ const size = (n, st = new Set()) => { if (n.size != null) return n.size; if (st.
 DATA.nodes.forEach(n => size(n));
 const FIRST = 'docs/manifest/emc2p.yaml';
 const bySize = (a, b) => b.size - a.size || a.name.localeCompare(b.name);
-const cmp = (a, b) => (b.file === FIRST) - (a.file === FIRST) || (a.file || '').localeCompare(b.file || '') || bySize(a, b);
+const cmp = (a, b) => (b.file === FIRST) - (a.file === FIRST) || (a.file || '').localeCompare(b.file || '') ||
+  has(b, 'requirement') - has(a, 'requirement') || bySize(a, b);
 const order = [], seen = new Set();
 const visit = (n, d, g) => { if (seen.has(n.id)) return; seen.add(n.id); n.depth = d; n.group = g; order.push(n); n.kids.sort(bySize).forEach(k => visit(k, d + 1, g)); };
 DATA.nodes.filter(n => !n.pp).sort(cmp).forEach(n => visit(n, 0, n.file));
