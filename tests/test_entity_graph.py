@@ -1,6 +1,7 @@
 """Tests for emc2p.entity_graph on a small fake registry (fast, no ETL)."""
 
 import json
+import textwrap
 
 import pandas as pd
 import pytest
@@ -97,3 +98,50 @@ def test_question_component_keeps_suggestion(tmp_path):
     nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
     q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
     assert q["fields"] == {"value": "Ship it?", "suggestion": "Ship it", "status": "open"}
+
+
+@pytest.mark.slow
+def test_registry_to_how_tree(tmp_path):
+    from emc2p.entity_graph import registry_to_how_tree, render_how_tree_html
+    from emc2p.registrar import Registrar
+
+    (tmp_path / "t.yaml").write_text(textwrap.dedent("""\
+        how:
+            - parent: directed_relation
+            - field:
+                  value: {type: entity_ref}
+                  question: {type: str}
+        how_link:
+            - parent: directed_relation
+            - field:
+                  source: {type: entity_ref}
+                  value: {type: entity_ref}
+                  question: {type: str}
+        mission:
+            - description: Root.
+            - how:
+                  - value: part_a
+                    question: How A?
+                  - value: part_b
+                    question: How B?
+        part_a:
+            - description: A.
+        part_b:
+            - description: B.
+        part_c:
+            - description: C.
+        index:
+            - how_link:
+                  - source: part_a
+                    value: part_c
+                    question: How C?
+        """))
+    tree = registry_to_how_tree(Registrar.from_manifest([str(tmp_path)]).registry)
+    nodes = tree["nodes"]
+    root = nodes[tree["root"]]
+    assert root["name"] == "mission"
+    assert [nodes[c]["question"] for c in root["children"]] == ["How A?", "How B?"]
+    a = nodes[root["children"][0]]
+    assert [nodes[c]["name"] for c in a["children"]] == ["part_c"]
+    assert len(nodes) == 4 and all(n["kind"] == "concept" for n in nodes.values())
+    assert "<title>X</title>" in render_how_tree_html(tree, title="X")

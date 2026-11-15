@@ -1,0 +1,201 @@
+<title>How Chain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@600&display=swap">
+<style>
+/* Drill-down tree: the selected path stacks at the top (depth shown by a
+   numbered, colored edge instead of indentation); the current node's
+   children are listed below it as cards. */
+:root {
+  --bg: #eef1f5; --surface: #ffffff; --ink: #18212b; --muted: #5b6876; --line: #d3dae2;
+  --accent: #2f4fd6; --accent-soft: #e2e8ff;
+  --d0: #2f4fd6; --d1: #b8620a; --d2: #17845f; --d3: #8a5cc2; --d4: #c2334d; --d5: #0f7d96; --d6: #6b7a1f;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
+  --accent: #8197ff; --accent-soft: #232c52;
+  --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
+  --accent: #8197ff; --accent-soft: #232c52;
+  --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.4; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 760px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding-top: calc(12px + env(safe-area-inset-top, 0px)); padding-bottom: 10px; }
+.titlebar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+h1 { font: 600 20px/1.1 var(--font-display); margin: 0; letter-spacing: -0.01em; }
+.counts { font: 12px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.searchbox { position: relative; }
+#search { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: 15px var(--font-body); }
+#results { position: absolute; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 10px 30px rgb(0 0 0 / .18); max-height: 60vh; overflow-y: auto; display: none; }
+#results.open { display: block; }
+.res { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.res:last-child { border-bottom: 0; }
+.res:hover, .res.hl { background: var(--accent-soft); }
+.res .crumb { font: 11px var(--font-mono); color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+main { padding-block: 14px 48px; }
+.label { font: 600 11px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+
+/* Path rows: one per selected level. */
+#path { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.step { --c: var(--d0); display: grid; grid-template-columns: 26px 1fr; align-items: start; gap: 10px; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 10px;
+  padding: 8px 12px 8px 8px; cursor: pointer; }
+.step:hover { border-color: var(--c); }
+.depth { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font: 600 12px var(--font-mono);
+  color: var(--surface); background: var(--c); }
+.step .body { min-width: 0; }
+.step .name { font: 500 13px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.step .q { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.step.current { cursor: default; box-shadow: 0 0 0 1px var(--c); }
+.step.current .name { white-space: normal; overflow-wrap: anywhere; font-size: 14px; }
+.step.current .q { white-space: normal; color: var(--ink); font-size: 13px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 4px; }
+.kind { font: 600 10px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--muted); }
+.loc { font: 11px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+.desc { margin: 8px 0 0; white-space: pre-line; overflow-wrap: anywhere; font-size: 13px; }
+.desc.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.more { border: 0; background: none; padding: 2px 0; color: var(--accent); cursor: pointer; font-size: 12px; }
+.note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
+
+/* Children of the current node. */
+#kids { display: grid; gap: 8px; }
+.kid { --c: var(--d1); display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; }
+.kid:hover { border-color: var(--c); }
+.kid .q { font-weight: 500; font-size: 14px; display: block; overflow-wrap: anywhere; }
+.kid .name { font: 12px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
+.kid .count { font: 600 12px var(--font-mono); color: var(--c); white-space: nowrap; }
+.kid .leaf { font: 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.empty { color: var(--muted); padding: 12px 0; }
+</style>
+
+<header><div class="wrap">
+  <div class="titlebar"><h1 id="title">How Chain</h1><span class="counts" id="counts"></span></div>
+  <div class="searchbox">
+    <input id="search" type="search" placeholder="Find any node by name, question, or description…" autocomplete="off"
+      role="combobox" aria-expanded="false" aria-controls="results">
+    <div id="results" role="listbox"></div>
+  </div>
+</div></header>
+<main class="wrap">
+  <ol id="path" aria-label="Selected path"></ol>
+  <div class="label" id="kidsLabel"></div>
+  <div id="kids"></div>
+</main>
+
+<script id="data" type="application/json">/*__DATA__*/null</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const N = DATA.nodes, ROOT = DATA.root;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const color = d => `var(--d${d % 7})`;
+const label = n => !n.location ? n.name
+  : n.kind === 'module' ? n.location.split('/').pop()
+  : (n.kind === 'variable' || n.kind === 'definition') && n.location.includes('::') ? n.location.split('::').pop()
+  : n.name;
+const firstPara = s => (s || '').split(/\n\s*\n/)[0];
+
+// Parent pointers and per-node subtree sizes.
+const parent = {}, size = {};
+Object.entries(N).forEach(([id, n]) => n.children.forEach(c => { parent[c] = id; }));
+const sizeOf = id => size[id] ??= 1 + N[id].children.reduce((t, c) => t + sizeOf(c), 0);
+const pathTo = id => { const p = [id]; while (parent[p[0]]) p.unshift(parent[p[0]]); return p; };
+let maxDepth = 0; Object.keys(N).forEach(id => { maxDepth = Math.max(maxDepth, pathTo(id).length - 1); });
+document.getElementById('counts').textContent = `${Object.keys(N).length} nodes · ${maxDepth + 1} levels`;
+document.getElementById('title').textContent = document.title;
+
+let path = [ROOT];
+const expanded = new Set();
+
+function render() {
+  const cur = path[path.length - 1];
+  document.getElementById('path').innerHTML = path.map((id, d) => {
+    const n = N[id], isCur = d === path.length - 1, long = (n.description || '').length > 280;
+    const desc = isCur && n.description
+      ? `<p class="desc${long && !expanded.has(id) ? ' clamp' : ''}">${esc(expanded.has(id) ? n.description : firstPara(n.description))}</p>` +
+        (long || firstPara(n.description) !== n.description ? `<button class="more" data-more="${id}">${expanded.has(id) ? 'Show less' : 'Show more'}</button>` : '')
+      : '';
+    return `<li><div class="step${isCur ? ' current' : ''}" style="--c:${color(d)}" ${isCur ? 'aria-current="true"' : `role="button" tabindex="0" data-go="${d}"`}>
+      <span class="depth">${d}</span>
+      <span class="body">
+        <span class="name">${esc(label(n))}</span>
+        ${n.question ? `<span class="q">${esc(n.question)}</span>` : ''}
+        ${isCur ? `<span class="meta"><span class="kind">${esc(n.kind)}</span>${n.location ? `<span class="loc">${esc(n.location)}</span>` : ''}</span>${desc}${n.note ? `<div class="note">${esc(n.note)}</div>` : ''}` : ''}
+      </span></div></li>`;
+  }).join('');
+  const kids = N[cur].children, d = path.length;
+  document.getElementById('kidsLabel').textContent = kids.length ? `${kids.length} how${kids.length > 1 ? 's' : ''} · level ${d}` : '';
+  document.getElementById('kids').innerHTML = kids.length ? kids.map(id => {
+    const k = N[id], below = sizeOf(id) - 1;
+    return `<button class="kid" style="--c:${color(d)}" data-id="${id}">
+      <span><span class="q">${esc(k.question || label(k))}</span>
+        <span class="meta"><span class="kind">${esc(k.kind)}</span><span class="name">${esc(label(k))}</span></span></span>
+      ${k.children.length ? `<span class="count" title="${below} nodes below">${k.children.length} ›</span>` : '<span class="leaf">leaf</span>'}
+    </button>`;
+  }).join('') : '<div class="empty">Nothing further: this is as concrete as the chain goes.</div>';
+}
+
+function go(newPath, push = true) {
+  path = newPath;
+  if (push) history.pushState({ path }, '', '#' + path[path.length - 1]);
+  render();
+  const cur = document.querySelector('.step.current');
+  if (cur) cur.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-id]'); if (k) return go([...path, k.dataset.id]);
+  const s = e.target.closest('[data-go]'); if (s) return go(path.slice(0, +s.dataset.go + 1));
+  const m = e.target.closest('[data-more]'); if (m) { const id = m.dataset.more; expanded.has(id) ? expanded.delete(id) : expanded.add(id); render(); }
+});
+document.addEventListener('keydown', e => {
+  const s = e.target.closest && e.target.closest('[data-go]');
+  if (s && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(path.slice(0, +s.dataset.go + 1)); }
+});
+addEventListener('popstate', e => { path = (e.state && e.state.path) || pathFromHash(); render(); });
+const pathFromHash = () => { const id = decodeURIComponent(location.hash.slice(1)); return N[id] ? pathTo(id) : [ROOT]; };
+
+// Search: jump straight to any node, opening the path down to it.
+const search = document.getElementById('search'), results = document.getElementById('results');
+let hits = [], hl = 0;
+const ALL = Object.entries(N).map(([id, n]) => [id, (label(n) + ' ' + n.name + ' ' + (n.question || '') + ' ' + (n.location || '') + ' ' + (n.description || '')).toLowerCase()]);
+function showResults() {
+  const q = search.value.trim().toLowerCase();
+  hits = q ? ALL.filter(([, t]) => q.split(/\s+/).every(w => t.includes(w))).slice(0, 30).map(([id]) => id) : [];
+  hl = 0;
+  results.innerHTML = hits.map((id, i) => `<button class="res${i === hl ? ' hl' : ''}" role="option" data-hit="${id}"><span>${esc(label(N[id]))}</span>
+    <span class="crumb">${esc(pathTo(id).slice(1, -1).map(p => label(N[p])).join(' › ') || 'top level')}</span></button>`).join('') ||
+    (q ? '<div class="res" aria-disabled="true">No matches</div>' : '');
+  results.classList.toggle('open', !!q); search.setAttribute('aria-expanded', !!q);
+}
+function pick(id) { search.value = ''; showResults(); go(pathTo(id)); }
+search.addEventListener('input', showResults);
+search.addEventListener('keydown', e => {
+  if (!hits.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); hl = (hl + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length;
+    results.querySelectorAll('.res').forEach((r, i) => r.classList.toggle('hl', i === hl)); }
+  if (e.key === 'Enter') { e.preventDefault(); pick(hits[hl]); }
+  if (e.key === 'Escape') { search.value = ''; showResults(); }
+});
+results.addEventListener('click', e => { const r = e.target.closest('[data-hit]'); if (r) pick(r.dataset.hit); });
+document.addEventListener('click', e => { if (!e.target.closest('.searchbox')) { results.classList.remove('open'); search.setAttribute('aria-expanded', false); } });
+
+path = pathFromHash();
+history.replaceState({ path }, '', location.hash || '#' + ROOT);
+render();
+</script>
