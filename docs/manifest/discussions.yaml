@@ -44,7 +44,12 @@ entity_graph_viewer:
         - description: >
               Whether builtin component-type definitions should be shown
               alongside project entities.
-        - question: Hide builtin component definitions by default?
+        - question:
+              value: Hide builtin component definitions by default?
+              answer: >
+                  Yes. The viewer hides builtins.* entities unless the
+                  Builtins chip is on or a builtin file chip is selected.
+              status: answered
     wide_screen_side_panel:
         - description: >
               How the side panel behaves on wide screens.

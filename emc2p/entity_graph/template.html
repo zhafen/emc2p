@@ -158,16 +158,19 @@ DATA.nodes.filter(n => !seen.has(n.id)).sort(cmp).forEach(n => visit(n, 0, n.fil
 
 const FILES = [...new Set(order.map(n => n.group))];
 const ETYPES = [...new Set(DATA.edges.map(e => e.type))];
-const state = { q: '', file: null, etypes: new Set(ETYPES), sel: null };
+const state = { q: '', file: null, etypes: new Set(ETYPES), sel: null, builtins: false };
+const isBuiltin = n => (n.file || '').startsWith('builtins.');
 
 // Chips
 const chips = document.getElementById('chips');
 chips.innerHTML = `<button class="chip file" data-file="" aria-pressed="true">All files</button>` +
+  `<button class="chip builtins" aria-pressed="false" title="Show builtin definitions">Builtins</button>` +
   FILES.map(f => `<button class="chip file" data-file="${esc(f)}" aria-pressed="false">${esc(fileLabel(f))}</button>`).join('') +
   `<span class="sep"></span>` +
   ETYPES.map(t => `<button class="chip edge" data-etype="${esc(t)}" aria-pressed="true"><span class="sw" style="background:${edgeColor(t)}"></span>${esc(t)}</button>`).join('');
 chips.addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
+  if (b.classList.contains('builtins')) { state.builtins = !state.builtins; b.setAttribute('aria-pressed', state.builtins); applyFilter(); return; }
   if (b.dataset.etype) { const t = b.dataset.etype; state.etypes.has(t) ? state.etypes.delete(t) : state.etypes.add(t); b.setAttribute('aria-pressed', state.etypes.has(t)); draw(); return; }
   state.file = b.dataset.file || null;
   chips.querySelectorAll('.file').forEach(c => c.setAttribute('aria-pressed', (c.dataset.file || null) === state.file));
@@ -199,7 +202,7 @@ function applyFilter() {
   let shown = 0;
   const groupShown = {};
   order.forEach(n => {
-    const ok = (!state.file || n.group === state.file) &&
+    const ok = (!state.file || n.group === state.file) && (state.builtins || !isBuiltin(n) || n.group === state.file) &&
       (!q || (n.name + ' ' + (n.alias || '') + ' ' + descOf(n)).toLowerCase().includes(q));
     rowEl[n.id].hidden = !ok; if (ok) { shown++; groupShown[n.group] = true; }
   });
