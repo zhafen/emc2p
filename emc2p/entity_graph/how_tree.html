@@ -68,7 +68,6 @@ main { padding-block: 14px 48px; }
   border: 1px solid var(--line); color: var(--muted); }
 .loc { font: 11px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
 .desc { margin: 8px 0 0; white-space: pre-line; overflow-wrap: anywhere; font-size: 13px; }
-.desc.clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .more { border: 0; background: none; padding: 2px 0; color: var(--accent); cursor: pointer; font-size: 12px; }
 .note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 
@@ -79,9 +78,9 @@ main { padding-block: 14px 48px; }
   padding: 10px 12px; cursor: pointer; }
 .kid:hover { border-color: var(--c); }
 .kid .q { font-weight: 500; font-size: 14px; display: block; overflow-wrap: anywhere; }
+.kid .q.code { font: 500 13px var(--font-mono); }
 .kid .name { font: 12px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
 .kid .count { font: 600 12px var(--font-mono); color: var(--c); white-space: nowrap; }
-.kid .leaf { font: 11px var(--font-mono); color: var(--muted); white-space: nowrap; }
 .empty { color: var(--muted); padding: 12px 0; }
 </style>
 
@@ -109,7 +108,11 @@ const label = n => !n.location ? n.name
   : n.kind === 'module' ? n.location.split('/').pop()
   : (n.kind === 'variable' || n.kind === 'definition') && n.location.includes('::') ? n.location.split('::').pop()
   : n.name;
-const firstPara = s => (s || '').split(/\n\s*\n/)[0];
+// Summary: the first sentence (or first paragraph, if shorter).
+// Docstrings hard-wrap lines; reflow each paragraph, keeping paragraph breaks.
+const reflow = s => (s || '').trim().split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ')).join('\n\n');
+const firstPara = s => { const p = reflow(s).split('\n\n')[0], m = p.match(/^[\s\S]*?[.!?](?=\s|$)/); return (m ? m[0] : p).trim(); };
+const kindBadge = n => n.kind === 'concept' ? '' : `<span class="kind">${esc(n.kind)}</span>`;
 
 // Parent pointers and per-node subtree sizes.
 const parent = {}, size = {};
@@ -126,17 +129,17 @@ const expanded = new Set();
 function render() {
   const cur = path[path.length - 1];
   document.getElementById('path').innerHTML = path.map((id, d) => {
-    const n = N[id], isCur = d === path.length - 1, long = (n.description || '').length > 280;
+    const n = N[id], isCur = d === path.length - 1;
     const desc = isCur && n.description
-      ? `<p class="desc${long && !expanded.has(id) ? ' clamp' : ''}">${esc(expanded.has(id) ? n.description : firstPara(n.description))}</p>` +
-        (long || firstPara(n.description) !== n.description ? `<button class="more" data-more="${id}">${expanded.has(id) ? 'Show less' : 'Show more'}</button>` : '')
+      ? `<p class="desc">${esc(expanded.has(id) ? reflow(n.description) : firstPara(n.description))}</p>` +
+        (firstPara(n.description) !== reflow(n.description) ? `<button class="more" data-more="${id}">${expanded.has(id) ? 'Show less' : 'Show more'}</button>` : '')
       : '';
     return `<li><div class="step${isCur ? ' current' : ''}" style="--c:${color(d)}" ${isCur ? 'aria-current="true"' : `role="button" tabindex="0" data-go="${d}"`}>
       <span class="depth">${d}</span>
       <span class="body">
         <span class="name">${esc(label(n))}</span>
         ${n.question ? `<span class="q">${esc(n.question)}</span>` : ''}
-        ${isCur ? `<span class="meta"><span class="kind">${esc(n.kind)}</span>${n.location ? `<span class="loc">${esc(n.location)}</span>` : ''}</span>${desc}${n.note ? `<div class="note">${esc(n.note)}</div>` : ''}` : ''}
+        ${isCur ? `${kindBadge(n) || n.location ? `<span class="meta">${kindBadge(n)}${n.location ? `<span class="loc">${esc(n.location)}</span>` : ''}</span>` : ''}${desc}${n.note ? `<div class="note">${esc(n.note)}</div>` : ''}` : ''}
       </span></div></li>`;
   }).join('');
   const kids = N[cur].children, d = path.length;
@@ -144,9 +147,9 @@ function render() {
   document.getElementById('kids').innerHTML = kids.length ? kids.map(id => {
     const k = N[id], below = sizeOf(id) - 1;
     return `<button class="kid" style="--c:${color(d)}" data-id="${id}">
-      <span><span class="q">${esc(k.question || label(k))}</span>
-        <span class="meta"><span class="kind">${esc(k.kind)}</span><span class="name">${esc(label(k))}</span></span></span>
-      ${k.children.length ? `<span class="count" title="${below} nodes below">${k.children.length} ›</span>` : '<span class="leaf">leaf</span>'}
+      <span>${k.question ? `<span class="q">${esc(k.question)}</span>` : `<span class="q code">${esc(label(k))}</span>`}
+        ${kindBadge(k) || k.question ? `<span class="meta">${kindBadge(k)}${k.question ? `<span class="name">${esc(label(k))}</span>` : ''}</span>` : ''}</span>
+      ${k.children.length ? `<span class="count" title="${below} nodes below">${k.children.length} ›</span>` : ''}
     </button>`;
   }).join('') : '<div class="empty">Nothing further: this is as concrete as the chain goes.</div>';
 }
