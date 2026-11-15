@@ -21,7 +21,9 @@ entity_graph_viewer:
               through a left gutter.
     viewer_ordering:
         - description: >
-              emc2p.yaml's entities come first; within a level, entities
+              emc2p.yaml's entities come first; within a file, top-level
+              entities with a ((requirement)) come first (so the
+              tool_for_data_driven_mcps tree leads); otherwise entities
               with the most descendants come first.
     viewer_selection:
         - description: >
@@ -49,3 +51,14 @@ entity_graph_viewer:
         - question: >
               On wide screens, should the side panel wait for "Details"
               like it does on mobile?
+    full_project_graph:
+        - description: >
+              Generated a graph of every emc2p entity (docs/manifest plus
+              builtins) with build.py and published it as an Artifact.
+              The merged viewer listed getter_api_design first, which
+              prompted the requirements-first ordering in viewer_ordering.
+    conversation_topics_as_nodes:
+        - description: >
+              Design conversations are recorded here as topic entities so
+              they appear as nodes in the graph alongside the project's
+              requirements and solutions.
