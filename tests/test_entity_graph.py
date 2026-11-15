@@ -86,3 +86,14 @@ def test_question_component_defaults_to_open(tmp_path):
     nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
     q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
     assert q["fields"] == {"value": "Ship it?", "status": "open"}
+
+
+@pytest.mark.slow
+def test_question_component_keeps_suggestion(tmp_path):
+    from emc2p.registrar import Registrar
+
+    (tmp_path / "t.yaml").write_text(
+        "topic:\n    - question:\n          value: Ship it?\n          suggestion: Ship it\n")
+    nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
+    q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
+    assert q["fields"] == {"value": "Ship it?", "suggestion": "Ship it", "status": "open"}
