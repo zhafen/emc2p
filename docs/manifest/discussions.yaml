@@ -53,9 +53,14 @@ entity_graph_viewer:
     wide_screen_side_panel:
         - description: >
               How the side panel behaves on wide screens.
-        - question: >
-              On wide screens, should the side panel wait for "Details"
-              like it does on mobile?
+        - question:
+              value: >
+                  On wide screens, should the side panel wait for
+                  "Details" like it does on mobile?
+              answer: >
+                  Yes. On wide screens the panel stays closed until
+                  Details is pressed, then slides in from the right.
+              status: answered
     full_project_graph:
         - description: >
               Generated a graph of every emc2p entity (docs/manifest plus

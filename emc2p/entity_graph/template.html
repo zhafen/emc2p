@@ -101,11 +101,12 @@ h2 { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing:
 
 @media (min-width: 900px) {
   #sheet { left: auto; top: 0; width: 400px; height: auto; border-radius: 0; border-top: 0; border-left: 1px solid var(--line);
-    box-shadow: none; transform: none; padding-top: env(safe-area-inset-top, 0px); }
+    box-shadow: none; transform: translateX(105%); padding-top: env(safe-area-inset-top, 0px); }
+  #sheet.open { transform: none; }
   #sheet.tall { height: auto; }
   .handle { display: none; }
   .sheet-body { padding-top: 16px; }
-  header, main { margin-right: 400px; }
+  body.sheet-open header, body.sheet-open main { margin-right: 400px; }
   body.sheet-open main { padding-bottom: 40px; }
   .desk-only { display: block; }
 }
