@@ -105,7 +105,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const color = d => `var(--d${d % 7})`;
 const label = n => !n.location ? n.name
   : n.kind === 'module' ? n.location.split('/').pop()
-  : (n.kind === 'variable' || n.kind === 'definition') && n.location.includes('::') ? n.location.split('::').pop()
+  // Stand-ins (variables, YAML definitions, calls, objects in another package): their real name.
+  : (['variable', 'definition', 'call'].includes(n.kind) || /^\w+:(?!:)/.test(n.location)) && n.location.includes('::') ? n.location.split('::').pop()
   : n.name;
 // Summary: the first sentence (or first paragraph, if shorter).
 // Docstrings hard-wrap lines; reflow each paragraph, keeping paragraph breaks.

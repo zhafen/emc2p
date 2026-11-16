@@ -90,6 +90,8 @@ def _how_kind(key: str, filepath: str, comps: dict) -> str:
     """Rough object kind for display: concept, file, definition, module, class, function, variable."""
     if "source_file" in comps:
         loc = comps["source_file"][0].get("value") or ""
+        if _clean(comps["source_file"][0].get("kind")):
+            return comps["source_file"][0]["kind"]
         if "::" not in loc:
             return "file"
         return "variable" if loc.split("::", 1)[0].endswith(".py") else "definition"
