@@ -130,11 +130,19 @@ def test_registry_to_how_tree(tmp_path):
             - description: B.
         part_c:
             - description: C.
+        test:
+            - parent: directed_relation
+            - field:
+                  source: {type: entity_ref}
+                  value: {type: entity_ref}
         index:
             - how_link:
                   - source: part_a
                     value: part_c
                     question: How C?
+            - test:
+                  - source: part_b
+                    value: part_c
         """))
     tree = registry_to_how_tree(Registrar.from_manifest([str(tmp_path)]).registry)
     nodes = tree["nodes"]
@@ -144,4 +152,6 @@ def test_registry_to_how_tree(tmp_path):
     a = nodes[root["children"][0]]
     assert [nodes[c]["name"] for c in a["children"]] == ["part_c"]
     assert len(nodes) == 4 and all(n["kind"] == "concept" for n in nodes.values())
+    c = nodes[a["children"][0]]
+    assert [nodes[t]["name"] for t in c["tests"]] == ["part_b"]
     assert "<title>X</title>" in render_how_tree_html(tree, title="X")

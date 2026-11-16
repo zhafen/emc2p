@@ -9,6 +9,7 @@
 :root {
   --bg: #eef1f5; --surface: #ffffff; --ink: #18212b; --muted: #5b6876; --line: #d3dae2;
   --accent: #2f4fd6; --accent-soft: #e2e8ff;
+  --ok: #17845f;
   --d0: #2f4fd6; --d1: #b8620a; --d2: #17845f; --d3: #8a5cc2; --d4: #c2334d; --d5: #0f7d96; --d6: #6b7a1f;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -17,10 +18,12 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
+  --ok: #3cc39a;
   --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
+  --ok: #3cc39a;
   --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark }
 
 * { box-sizing: border-box; }
@@ -69,6 +72,12 @@ main { padding-block: 14px 48px; }
 .loc { font: 11px var(--font-mono); color: var(--muted); overflow-wrap: anywhere; }
 .desc { margin: 8px 0 0; white-space: pre-line; overflow-wrap: anywhere; font-size: 13px; }
 .more { border: 0; background: none; padding: 2px 0; color: var(--accent); cursor: pointer; font-size: 12px; }
+.tests { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tests summary { cursor: pointer; font: 600 12px var(--font-mono); color: var(--ok); }
+.tests ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.tests button { border: 0; background: none; padding: 2px 0; cursor: pointer; text-align: left; font: 12px var(--font-mono); color: var(--accent); overflow-wrap: anywhere; }
+.tests .sub { font: 12px var(--font-body); color: var(--muted); }
+.kid .tcount { font: 600 11px var(--font-mono); color: var(--ok); margin-left: 2px; }
 .note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 
 /* Children of the current node. */
@@ -117,6 +126,18 @@ const kindBadge = n => n.kind === 'concept' ? '' : `<span class="kind">${esc(n.k
 // Parent pointers and per-node subtree sizes.
 const parent = {}, size = {};
 Object.entries(N).forEach(([id, n]) => n.children.forEach(c => { parent[c] = id; }));
+// Tests on a node's descendants (not the node itself), for the "more below" count.
+const testsBelow = {};
+const belowOf = id => testsBelow[id] ??= N[id].children.reduce((t, c) => t + (N[c].tests || []).length + belowOf(c), 0);
+const testsHtml = id => {
+  const own = N[id].tests || [], below = belowOf(id);
+  if (!own.length && !below) return '';
+  const list = own.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button></li>`).join('');
+  const belowText = below ? `${below} on nodes below` : '';
+  if (!own.length) return `<div class="tests"><div class="sub">✓ ${belowText}</div></div>`;
+  return `<details class="tests"${own.length <= 5 ? ' open' : ''}><summary>✓ ${own.length} test${own.length === 1 ? '' : 's'}` +
+    `${below ? ` <span class="sub">· ${belowText}</span>` : ''}</summary><ul>${list}</ul></details>`;
+};
 const sizeOf = id => size[id] ??= 1 + N[id].children.reduce((t, c) => t + sizeOf(c), 0);
 const pathTo = id => { const p = [id]; while (parent[p[0]]) p.unshift(parent[p[0]]); return p; };
 let maxDepth = 0; Object.keys(N).forEach(id => { maxDepth = Math.max(maxDepth, pathTo(id).length - 1); });
@@ -139,7 +160,7 @@ function render() {
       <span class="body">
         <span class="name">${esc(label(n))}</span>
         ${n.question ? `<span class="q">${esc(n.question)}</span>` : ''}
-        ${isCur ? `${kindBadge(n) || n.location ? `<span class="meta">${kindBadge(n)}${n.location ? `<span class="loc">${esc(n.location)}</span>` : ''}</span>` : ''}${desc}${n.note ? `<div class="note">${esc(n.note)}</div>` : ''}` : ''}
+        ${isCur ? `${kindBadge(n) || n.location ? `<span class="meta">${kindBadge(n)}${n.location ? `<span class="loc">${esc(n.location)}</span>` : ''}</span>` : ''}${desc}${n.note ? `<div class="note">${esc(n.note)}</div>` : ''}${testsHtml(id)}` : ''}
       </span></div></li>`;
   }).join('');
   const kids = N[cur].children, d = path.length;
@@ -147,7 +168,7 @@ function render() {
   document.getElementById('kids').innerHTML = kids.length ? kids.map(id => {
     const k = N[id], below = sizeOf(id) - 1;
     return `<button class="kid" style="--c:${color(d)}" data-id="${id}">
-      <span><span class="name">${esc(label(k))}</span>
+      <span><span class="name">${esc(label(k))}${(k.tests || []).length ? `<span class="tcount" title="${k.tests.length} tests"> ✓${k.tests.length}</span>` : ''}</span>
         ${k.question ? `<span class="q">${esc(k.question)}</span>` : ''}
         ${kindBadge(k) ? `<span class="meta">${kindBadge(k)}</span>` : ''}</span>
       ${k.children.length ? `<span class="count" title="${below} nodes below">${k.children.length} ›</span>` : ''}
@@ -165,6 +186,7 @@ function go(newPath, push = true) {
 document.addEventListener('click', e => {
   const k = e.target.closest('[data-id]'); if (k) return go([...path, k.dataset.id]);
   const s = e.target.closest('[data-go]'); if (s) return go(path.slice(0, +s.dataset.go + 1));
+  const j = e.target.closest('[data-jump]'); if (j) return N[j.dataset.jump] && go(pathTo(j.dataset.jump));
   const m = e.target.closest('[data-more]'); if (m) { const id = m.dataset.more; expanded.has(id) ? expanded.delete(id) : expanded.add(id); render(); }
 });
 document.addEventListener('keydown', e => {

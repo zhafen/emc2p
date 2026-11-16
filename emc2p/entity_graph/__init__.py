@@ -107,7 +107,8 @@ def registry_to_how_tree(registry, root: str | None = None) -> dict:
 
     Edges come from ``how`` components (owner -> ``value``) and ``how_link``
     components (``source`` -> ``value``), in listed order, each carrying the
-    ``question`` it answers. `root` is an entity key (e.g.
+    ``question`` it answers. ``test`` components (``source`` = a test,
+    ``value`` = what it tests) become each node's ``tests`` list. `root` is an entity key (e.g.
     ``how_chain_mission``); by default, the one entity with outgoing but no
     incoming how edges.
     """
@@ -129,6 +130,11 @@ def registry_to_how_tree(registry, root: str | None = None) -> dict:
             for row in df.to_dict("records"):
                 if row.get(src) in info and row.get("value_eid") in info:
                     edges.append((row[src], row["value_eid"], _clean(row.get("question")), _clean(row.get("note"))))
+    tests_of: dict = {}
+    if "test" in registry.component_types:
+        for row in registry.get("test").to_pandas().to_dict("records"):
+            if row.get("source_eid") in info and row.get("value_eid") in info:
+                tests_of.setdefault(row["value_eid"], []).append(row["source_eid"])
     children: dict = {}
     incoming = {}
     for s, v, q, note in edges:
@@ -157,7 +163,7 @@ def registry_to_how_tree(registry, root: str | None = None) -> dict:
         q, note = incoming.get(n, (None, None))
         nodes[n] = dict(name=d["key"].rsplit(".", 1)[-1] if d["file"].endswith(".py") else d["key"],
                         kind=kind, description=_clean(desc), question=q, note=note, location=loc,
-                        children=children.get(n, []))
+                        children=children.get(n, []), tests=tests_of.get(n, []))
         stack.extend(reversed(children.get(n, [])))
     return dict(root=root_id, nodes=nodes)
 
