@@ -76,6 +76,7 @@ main { padding-block: 14px 48px; }
 .tests summary { cursor: pointer; font: 600 12px var(--font-mono); color: var(--ok); }
 .tests ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .tests button { border: 0; background: none; padding: 2px 0; cursor: pointer; text-align: left; font: 12px var(--font-mono); color: var(--accent); overflow-wrap: anywhere; }
+.tests .hand { font-size: 11px; color: var(--muted); margin-left: 6px; }
 .tests .sub { font: 12px var(--font-body); color: var(--muted); }
 .kid .tcount { font: 600 11px var(--font-mono); color: var(--ok); margin-left: 2px; }
 .note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
@@ -132,7 +133,8 @@ const belowOf = id => testsBelow[id] ??= N[id].children.reduce((t, c) => t + (N[
 const testsHtml = id => {
   const own = N[id].tests || [], below = belowOf(id);
   if (!own.length && !below) return '';
-  const list = own.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button></li>`).join('');
+  const hand = new Set(N[id].hand_tests || []);
+  const list = own.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button>${hand.has(t) ? '<span class="hand" title="Hand-written link (declared in the test)">✎</span>' : ''}</li>`).join('');
   const belowText = below ? `${below} on nodes below` : '';
   if (!own.length) return `<div class="tests"><div class="sub">✓ ${belowText}</div></div>`;
   return `<details class="tests"${own.length <= 5 ? ' open' : ''}><summary>✓ ${own.length} test${own.length === 1 ? '' : 's'}` +

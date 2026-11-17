@@ -128,12 +128,18 @@ def test_registry_to_how_tree(tmp_path):
             - description: A.
         part_b:
             - description: B.
+            - tests:
+                  value: part_a
         part_c:
             - description: C.
         test:
             - parent: directed_relation
             - field:
                   source: {type: entity_ref}
+                  value: {type: entity_ref}
+        tests:
+            - parent: directed_relation
+            - field:
                   value: {type: entity_ref}
         index:
             - how_link:
@@ -154,4 +160,6 @@ def test_registry_to_how_tree(tmp_path):
     assert len(nodes) == 4 and all(n["kind"] == "concept" for n in nodes.values())
     c = nodes[a["children"][0]]
     assert [nodes[t]["name"] for t in c["tests"]] == ["part_b"]
+    assert c["hand_tests"] == []
+    assert [nodes[t]["name"] for t in a["hand_tests"]] == ["part_b"] == [nodes[t]["name"] for t in a["tests"]]
     assert "<title>X</title>" in render_how_tree_html(tree, title="X")
