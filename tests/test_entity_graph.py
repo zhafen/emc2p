@@ -163,3 +163,13 @@ def test_registry_to_how_tree(tmp_path):
     assert c["hand_tests"] == []
     assert [nodes[t]["name"] for t in a["hand_tests"]] == ["part_b"] == [nodes[t]["name"] for t in a["tests"]]
     assert "<title>X</title>" in render_how_tree_html(tree, title="X")
+
+
+def test_is_validated_location():
+    from emc2p.entity_graph import _is_validated_location
+
+    assert _is_validated_location("tests/test_human_validated/test_scenarios/race/test_scenario.py::test_x")
+    assert _is_validated_location("tests/test_acceptance.py::test_x")
+    assert _is_validated_location("tests/test_dataflows/test_human_validated_examples.py")
+    assert not _is_validated_location("tests/test_core.py::test_human_validated_thing")
+    assert not _is_validated_location(None)

@@ -73,6 +73,18 @@ def write_graph(registry, output_path: str | Path) -> Path:
 
 HOW_TREE_TEMPLATE_PATH = Path(__file__).parent / "how_tree.html"
 
+# Tests in a file or directory named like this are human-validated (extra carefully
+# verified, e.g. tests/test_human_validated/ or test_acceptance.py) and shown apart.
+VALIDATED_TEST_PREFIXES = ("test_human_validated", "test_acceptance")
+
+
+def _is_validated_location(loc: str | None) -> bool:
+    """True if any path segment of `loc` (``path::name``) starts with a VALIDATED_TEST_PREFIXES entry."""
+    if not loc:
+        return False
+    path = loc.split("::", 1)[0].split(":", 1)[-1]
+    return any(Path(part).stem.startswith(VALIDATED_TEST_PREFIXES) for part in Path(path).parts)
+
 
 def _py_module(key: str, filepath: str) -> str:
     """The module part of a Python entity's dotted `key`, matched against its `filepath`."""
@@ -172,7 +184,7 @@ def registry_to_how_tree(registry, root: str | None = None) -> dict:
         nodes[n] = dict(name=d["key"].rsplit(".", 1)[-1] if d["file"].endswith(".py") else d["key"],
                         kind=kind, description=_clean(desc), question=q, note=note, location=loc,
                         children=children.get(n, []), tests=tests_of.get(n, []),
-                        hand_tests=hand_of.get(n, []))
+                        hand_tests=hand_of.get(n, []), validated=_is_validated_location(loc))
         stack.extend(reversed(children.get(n, [])))
     return dict(root=root_id, nodes=nodes)
 

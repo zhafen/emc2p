@@ -9,7 +9,7 @@
 :root {
   --bg: #eef1f5; --surface: #ffffff; --ink: #18212b; --muted: #5b6876; --line: #d3dae2;
   --accent: #2f4fd6; --accent-soft: #e2e8ff;
-  --ok: #17845f;
+  --ok: #17845f; --hv: #a35d00; --hv-soft: #fff4e0;
   --d0: #2f4fd6; --d1: #b8620a; --d2: #17845f; --d3: #8a5cc2; --d4: #c2334d; --d5: #0f7d96; --d6: #6b7a1f;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -18,12 +18,12 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
-  --ok: #3cc39a;
+  --ok: #3cc39a; --hv: #f2b046; --hv-soft: #2e2414;
   --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #0f141a; --surface: #18202a; --ink: #e2e8ef; --muted: #93a1af; --line: #2a3642;
   --accent: #8197ff; --accent-soft: #232c52;
-  --ok: #3cc39a;
+  --ok: #3cc39a; --hv: #f2b046; --hv-soft: #2e2414;
   --d0: #8197ff; --d1: #e39b4d; --d2: #3cc39a; --d3: #b48ae8; --d4: #ff7a8f; --d5: #4cc3dc; --d6: #b6c95a; color-scheme: dark }
 
 * { box-sizing: border-box; }
@@ -78,6 +78,11 @@ main { padding-block: 14px 48px; }
 .tests button { border: 0; background: none; padding: 2px 0; cursor: pointer; text-align: left; font: 12px var(--font-mono); color: var(--accent); overflow-wrap: anywhere; }
 .tests .hand { font-size: 11px; color: var(--muted); margin-left: 6px; }
 .tests .sub { font: 12px var(--font-body); color: var(--muted); }
+.tests.hv { border: 1px solid var(--hv); border-radius: 8px; background: var(--hv-soft); padding: 8px 10px; margin-top: 10px; }
+.tests.hv summary, .tests.hv > .sub { color: var(--hv); font-weight: 600; }
+.tests.hv + .tests { border-top: 0; }
+.kind.hvkind { color: var(--hv); border-color: var(--hv); }
+.kid .hvcount { font: 600 11px var(--font-mono); color: var(--hv); margin-left: 4px; }
 .kid .tcount { font: 600 11px var(--font-mono); color: var(--ok); margin-left: 2px; }
 .note { margin-top: 6px; font-size: 12px; color: var(--muted); font-style: italic; }
 
@@ -122,24 +127,33 @@ const label = n => !n.location ? n.name
 // Docstrings hard-wrap lines; reflow each paragraph, keeping paragraph breaks.
 const reflow = s => (s || '').trim().split(/\n\s*\n/).map(p => p.replace(/\s+/g, ' ')).join('\n\n');
 const firstPara = s => { const p = reflow(s).split('\n\n')[0], m = p.match(/^[\s\S]*?[.!?](?=\s|$)/); return (m ? m[0] : p).trim(); };
-const kindBadge = n => n.kind === 'concept' ? '' : `<span class="kind">${esc(n.kind)}</span>`;
+const kindBadge = n => (n.kind === 'concept' ? '' : `<span class="kind">${esc(n.kind)}</span>`) +
+  (n.validated ? '<span class="kind hvkind" title="In a test_human_validated / test_acceptance file or directory">★ human-validated</span>' : '');
 
 // Parent pointers and per-node subtree sizes.
 const parent = {}, size = {};
 Object.entries(N).forEach(([id, n]) => n.children.forEach(c => { parent[c] = id; }));
-// Tests on a node's descendants (not the node itself), for the "more below" count.
-const testsBelow = {};
-const belowOf = id => testsBelow[id] ??= N[id].children.reduce((t, c) => t + (N[c].tests || []).length + belowOf(c), 0);
-const testsHtml = id => {
-  const own = N[id].tests || [], below = belowOf(id);
-  if (!own.length && !below) return '';
+// Each node's tests split into human-validated (shown first, apart) and other.
+const own = (id, v) => (N[id].tests || []).filter(t => !!(N[t] && N[t].validated) === v);
+const memo = {};
+// Linked tests of kind `v` on a node's descendants (not the node itself).
+const belowOf = (id, v) => (memo[id + v] ??= N[id].children.reduce((t, c) => t + own(c, v).length + belowOf(c, v), 0));
+const testList = (id, ts) => {
   const hand = new Set(N[id].hand_tests || []);
-  const list = own.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button>${hand.has(t) ? '<span class="hand" title="Hand-written link (declared in the test)">✎</span>' : ''}</li>`).join('');
-  const belowText = below ? `${below} on nodes below` : '';
-  if (!own.length) return `<div class="tests"><div class="sub">✓ ${belowText}</div></div>`;
-  return `<details class="tests"${own.length <= 5 ? ' open' : ''}><summary>✓ ${own.length} test${own.length === 1 ? '' : 's'}` +
-    `${below ? ` <span class="sub">· ${belowText}</span>` : ''}</summary><ul>${list}</ul></details>`;
+  return `<ul>${ts.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button>` +
+    `${hand.has(t) ? '<span class="hand" title="Hand-written link (declared in the test)">✎</span>' : ''}</li>`).join('')}</ul>`;
 };
+const testGroup = (id, v) => {
+  const ts = own(id, v), below = belowOf(id, v);
+  if (!ts.length && !below) return '';
+  const mark = v ? '★' : '✓', cls = v ? 'tests hv' : 'tests';
+  const what = v ? 'human-validated' : (ts.length === 1 ? 'test' : 'tests');
+  const belowText = below ? `${below} on nodes below` : '';
+  if (!ts.length) return `<div class="${cls}"><div class="sub">${mark} ${below} ${v ? 'human-validated ' : ''}on nodes below</div></div>`;
+  return `<details class="${cls}"${v || ts.length <= 5 ? ' open' : ''}><summary>${mark} ${ts.length} ${what}` +
+    `${below ? ` <span class="sub">· ${belowText}</span>` : ''}</summary>${testList(id, ts)}</details>`;
+};
+const testsHtml = id => testGroup(id, true) + testGroup(id, false);
 const sizeOf = id => size[id] ??= 1 + N[id].children.reduce((t, c) => t + sizeOf(c), 0);
 const pathTo = id => { const p = [id]; while (parent[p[0]]) p.unshift(parent[p[0]]); return p; };
 let maxDepth = 0; Object.keys(N).forEach(id => { maxDepth = Math.max(maxDepth, pathTo(id).length - 1); });
@@ -170,7 +184,9 @@ function render() {
   document.getElementById('kids').innerHTML = kids.length ? kids.map(id => {
     const k = N[id], below = sizeOf(id) - 1;
     return `<button class="kid" style="--c:${color(d)}" data-id="${id}">
-      <span><span class="name">${esc(label(k))}${(k.tests || []).length ? `<span class="tcount" title="${k.tests.length} tests"> ✓${k.tests.length}</span>` : ''}</span>
+      <span><span class="name">${esc(label(k))}${(() => { const hv = own(id, true).length + belowOf(id, true), t = own(id, false).length;
+          return (hv ? `<span class="hvcount" title="${hv} human-validated tests here or below"> ★${hv}</span>` : '') +
+                 (t ? `<span class="tcount" title="${t} tests"> ✓${t}</span>` : ''); })()}</span>
         ${k.question ? `<span class="q">${esc(k.question)}</span>` : ''}
         ${kindBadge(k) ? `<span class="meta">${kindBadge(k)}</span>` : ''}</span>
       ${k.children.length ? `<span class="count" title="${below} nodes below">${k.children.length} ›</span>` : ''}
