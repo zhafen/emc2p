@@ -21,7 +21,9 @@ entity_graph_viewer:
               through a left gutter.
     viewer_ordering:
         - description: >
-              emc2p.yaml's entities come first; within a level, entities
+              emc2p.yaml's entities come first; within a file, top-level
+              entities with a ((requirement)) come first (so the
+              tool_for_data_driven_mcps tree leads); otherwise entities
               with the most descendants come first.
     viewer_selection:
         - description: >
@@ -42,10 +44,113 @@ entity_graph_viewer:
         - description: >
               Whether builtin component-type definitions should be shown
               alongside project entities.
-        - question: Hide builtin component definitions by default?
+        - question:
+              value: Hide builtin component definitions by default?
+              suggestion: >
+                  Yes: hide them behind a toggle; they are reference
+                  material and roughly a third of the nodes.
+              answer: >
+                  Yes. The viewer hides builtins.* entities unless the
+                  Builtins chip is on or a builtin file chip is selected.
+              status: answered
     wide_screen_side_panel:
         - description: >
               How the side panel behaves on wide screens.
-        - question: >
-              On wide screens, should the side panel wait for "Details"
-              like it does on mobile?
+        - question:
+              value: >
+                  On wide screens, should the side panel wait for
+                  "Details" like it does on mobile?
+              suggestion: >
+                  Yes: one consistent interaction across screen sizes,
+                  and the list gets the full width until details are
+                  wanted.
+              answer: >
+                  Yes. On wide screens the panel stays closed until
+                  Details is pressed, then slides in from the right.
+              status: answered
+    full_project_graph:
+        - description: >
+              Generated a graph of every emc2p entity (docs/manifest plus
+              builtins) with build.py and published it as an Artifact.
+              The merged viewer listed getter_api_design first, which
+              prompted the requirements-first ordering in viewer_ordering.
+    conversation_topics_as_nodes:
+        - description: >
+              Design conversations are recorded here as topic entities so
+              they appear as nodes in the graph alongside the project's
+              requirements and solutions.
+    question_suggestion_field:
+        - description: >
+              ((question)) gained a ``suggestion`` field: whoever records a
+              question (e.g. Claude) fills in a recommended answer.
+    drill_down_how_viewer:
+        - description: >
+              A second viewer (how_tree.html, registry_to_how_tree) for how
+              chains. Starts at the root; selecting a node stacks it onto a
+              path shown with numbered, colored depth markers instead of
+              indentation, and lists its children below. Search jumps to
+              any node.
+    conversation_topics_artifact:
+        - description: >
+              This file is published on its own as a conversation-topics
+              artifact, separate from the full project graph.
+
+how_chain:
+    data:
+        - description: >
+              Breaking a package's mission down, one "how" at a time, to
+              files and then every object in them. Tried first on emc2p (iacs
+              poc/how_chain), then on story-simulator (docs/how_chain).
+    how_chain_format:
+        - description: >
+              Concept entities own ``how`` links down to the file level;
+              below that, generated ``how_link`` rows (explicit source and
+              value) link files, classes and functions, since neither end
+              of those links can own a component from YAML.
+    undocumented_objects:
+        - description: >
+              emc2p only loads Python objects that have a docstring.
+        - question:
+              value: How should objects without docstrings be covered?
+              suggestion: >
+                  Add minimal one-line docstrings, as the iacs experiment
+                  did on its vendored copy.
+              answer: >
+                  Added docstrings (~100 objects in story-simulator).
+              status: answered
+    full_object_coverage:
+        - description: >
+              The chain covers every object, nested functions and module/
+              class variables included. Variables can't carry docstrings,
+              so each gets a generated stand-in entity described by the
+              comment above it. Excluded: function locals, __iacs__,
+              __main__ guards, entities inside scenario YAML, repo config.
+    function_quality_split:
+        - description: >
+              Below the mission, two nodes: function (game-master
+              interface, world state, event-driven simulation, AI judgment)
+              and quality (verification, development tooling).
+        - question:
+              value: >
+                  Should quality also hold runtime qualities (e.g.
+                  self-consistency, cost), not just tests and tooling?
+              suggestion: >
+                  Yes, eventually: add quality concepts that point at the
+                  checks that enforce them, once a node may have more than
+                  one parent (or via a separate cross-link).
+              status: open
+    text_reduction:
+        - description: >
+              Shorter concept descriptions and questions; how_link.question
+              is optional and only hand-worded questions are kept, since a
+              generic one just repeated the value's name.
+    entity_graph_vs_how_tree:
+        - description: >
+              The project graph and the how chain are separate artifacts
+              with separate viewers.
+        - question:
+              value: Should they merge into one artifact with two views?
+              suggestion: >
+                  Not yet: keep them separate until the how chain covers
+                  emc2p too, then add a view switch.
+              status: open

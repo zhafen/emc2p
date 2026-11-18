@@ -1,6 +1,7 @@
 """Tests for emc2p.entity_graph on a small fake registry (fast, no ETL)."""
 
 import json
+import textwrap
 
 import pandas as pd
 import pytest
@@ -86,3 +87,89 @@ def test_question_component_defaults_to_open(tmp_path):
     nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
     q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
     assert q["fields"] == {"value": "Ship it?", "status": "open"}
+
+
+@pytest.mark.slow
+def test_question_component_keeps_suggestion(tmp_path):
+    from emc2p.registrar import Registrar
+
+    (tmp_path / "t.yaml").write_text(
+        "topic:\n    - question:\n          value: Ship it?\n          suggestion: Ship it\n")
+    nodes = registry_to_graph(Registrar.from_manifest([str(tmp_path)]).registry)["nodes"]
+    q = next(c for n in nodes for c in n["components"] if c["type"] == "question")
+    assert q["fields"] == {"value": "Ship it?", "suggestion": "Ship it", "status": "open"}
+
+
+@pytest.mark.slow
+def test_registry_to_how_tree(tmp_path):
+    from emc2p.entity_graph import registry_to_how_tree, render_how_tree_html
+    from emc2p.registrar import Registrar
+
+    (tmp_path / "t.yaml").write_text(textwrap.dedent("""\
+        how:
+            - parent: directed_relation
+            - field:
+                  value: {type: entity_ref}
+                  question: {type: str}
+        how_link:
+            - parent: directed_relation
+            - field:
+                  source: {type: entity_ref}
+                  value: {type: entity_ref}
+                  question: {type: str}
+        mission:
+            - description: Root.
+            - how:
+                  - value: part_a
+                    question: How A?
+                  - value: part_b
+                    question: How B?
+        part_a:
+            - description: A.
+        part_b:
+            - description: B.
+            - tests:
+                  value: part_a
+        part_c:
+            - description: C.
+        test:
+            - parent: directed_relation
+            - field:
+                  source: {type: entity_ref}
+                  value: {type: entity_ref}
+        tests:
+            - parent: directed_relation
+            - field:
+                  value: {type: entity_ref}
+        index:
+            - how_link:
+                  - source: part_a
+                    value: part_c
+                    question: How C?
+            - test:
+                  - source: part_b
+                    value: part_c
+        """))
+    tree = registry_to_how_tree(Registrar.from_manifest([str(tmp_path)]).registry)
+    nodes = tree["nodes"]
+    root = nodes[tree["root"]]
+    assert root["name"] == "mission"
+    assert [nodes[c]["question"] for c in root["children"]] == ["How A?", "How B?"]
+    a = nodes[root["children"][0]]
+    assert [nodes[c]["name"] for c in a["children"]] == ["part_c"]
+    assert len(nodes) == 4 and all(n["kind"] == "concept" for n in nodes.values())
+    c = nodes[a["children"][0]]
+    assert [nodes[t]["name"] for t in c["tests"]] == ["part_b"]
+    assert c["hand_tests"] == []
+    assert [nodes[t]["name"] for t in a["hand_tests"]] == ["part_b"] == [nodes[t]["name"] for t in a["tests"]]
+    assert "<title>X</title>" in render_how_tree_html(tree, title="X")
+
+
+def test_is_validated_location():
+    from emc2p.entity_graph import _is_validated_location
+
+    assert _is_validated_location("tests/test_human_validated/test_scenarios/race/test_scenario.py::test_x")
+    assert _is_validated_location("tests/test_acceptance.py::test_x")
+    assert _is_validated_location("tests/test_dataflows/test_human_validated_examples.py")
+    assert not _is_validated_location("tests/test_core.py::test_human_validated_thing")
+    assert not _is_validated_location(None)

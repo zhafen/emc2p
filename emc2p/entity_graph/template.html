@@ -101,11 +101,12 @@ h2 { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing:
 
 @media (min-width: 900px) {
   #sheet { left: auto; top: 0; width: 400px; height: auto; border-radius: 0; border-top: 0; border-left: 1px solid var(--line);
-    box-shadow: none; transform: none; padding-top: env(safe-area-inset-top, 0px); }
+    box-shadow: none; transform: translateX(105%); padding-top: env(safe-area-inset-top, 0px); }
+  #sheet.open { transform: none; }
   #sheet.tall { height: auto; }
   .handle { display: none; }
   .sheet-body { padding-top: 16px; }
-  header, main { margin-right: 400px; }
+  body.sheet-open header, body.sheet-open main { margin-right: 400px; }
   body.sheet-open main { padding-bottom: 40px; }
   .desk-only { display: block; }
 }
@@ -149,7 +150,8 @@ const size = (n, st = new Set()) => { if (n.size != null) return n.size; if (st.
 DATA.nodes.forEach(n => size(n));
 const FIRST = 'docs/manifest/emc2p.yaml';
 const bySize = (a, b) => b.size - a.size || a.name.localeCompare(b.name);
-const cmp = (a, b) => (b.file === FIRST) - (a.file === FIRST) || (a.file || '').localeCompare(b.file || '') || bySize(a, b);
+const cmp = (a, b) => (b.file === FIRST) - (a.file === FIRST) || (a.file || '').localeCompare(b.file || '') ||
+  has(b, 'requirement') - has(a, 'requirement') || bySize(a, b);
 const order = [], seen = new Set();
 const visit = (n, d, g) => { if (seen.has(n.id)) return; seen.add(n.id); n.depth = d; n.group = g; order.push(n); n.kids.sort(bySize).forEach(k => visit(k, d + 1, g)); };
 DATA.nodes.filter(n => !n.pp).sort(cmp).forEach(n => visit(n, 0, n.file));
@@ -157,16 +159,19 @@ DATA.nodes.filter(n => !seen.has(n.id)).sort(cmp).forEach(n => visit(n, 0, n.fil
 
 const FILES = [...new Set(order.map(n => n.group))];
 const ETYPES = [...new Set(DATA.edges.map(e => e.type))];
-const state = { q: '', file: null, etypes: new Set(ETYPES), sel: null };
+const state = { q: '', file: null, etypes: new Set(ETYPES), sel: null, builtins: false };
+const isBuiltin = n => (n.file || '').startsWith('builtins.');
 
 // Chips
 const chips = document.getElementById('chips');
 chips.innerHTML = `<button class="chip file" data-file="" aria-pressed="true">All files</button>` +
+  `<button class="chip builtins" aria-pressed="false" title="Show builtin definitions">Builtins</button>` +
   FILES.map(f => `<button class="chip file" data-file="${esc(f)}" aria-pressed="false">${esc(fileLabel(f))}</button>`).join('') +
   `<span class="sep"></span>` +
   ETYPES.map(t => `<button class="chip edge" data-etype="${esc(t)}" aria-pressed="true"><span class="sw" style="background:${edgeColor(t)}"></span>${esc(t)}</button>`).join('');
 chips.addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
+  if (b.classList.contains('builtins')) { state.builtins = !state.builtins; b.setAttribute('aria-pressed', state.builtins); applyFilter(); return; }
   if (b.dataset.etype) { const t = b.dataset.etype; state.etypes.has(t) ? state.etypes.delete(t) : state.etypes.add(t); b.setAttribute('aria-pressed', state.etypes.has(t)); draw(); return; }
   state.file = b.dataset.file || null;
   chips.querySelectorAll('.file').forEach(c => c.setAttribute('aria-pressed', (c.dataset.file || null) === state.file));
@@ -198,7 +203,7 @@ function applyFilter() {
   let shown = 0;
   const groupShown = {};
   order.forEach(n => {
-    const ok = (!state.file || n.group === state.file) &&
+    const ok = (!state.file || n.group === state.file) && (state.builtins || !isBuiltin(n) || n.group === state.file) &&
       (!q || (n.name + ' ' + (n.alias || '') + ' ' + descOf(n)).toLowerCase().includes(q));
     rowEl[n.id].hidden = !ok; if (ok) { shown++; groupShown[n.group] = true; }
   });

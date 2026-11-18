@@ -162,11 +162,20 @@ question:
           questions at once, so each row is its own question rather than
           a restatement of one. Mark one resolved by filling in
           ``answer`` and setting ``status: answered``; viewers can then
-          flag entities that still have ``status: open`` rows.
+          flag entities that still have ``status: open`` rows. Whoever
+          records the question (e.g. Claude) fills in ``suggestion`` with
+          their recommended answer, so the person answering can simply
+          accept or override it.
     - field:
           value:
               description: The question text.
               type: str
+          suggestion:
+              description: >
+                  The asker's recommended answer, filled in when the
+                  question is recorded.
+              type: str
+              nullable: true
           answer:
               description: The answer, once given. Null while open.
               type: str
