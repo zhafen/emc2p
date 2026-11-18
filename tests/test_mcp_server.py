@@ -7,6 +7,7 @@ test of any model's judgment -- see
 tests/test_human_validated/test_write_accuracy.py for that.
 """
 
+import json
 import math
 from unittest.mock import MagicMock
 
@@ -331,12 +332,13 @@ class TestTimeProvider:
 
 
 class TestMount:
-    def test_mounts_all_six_tools_with_real_descriptions(self):
+    def test_mounts_all_seven_tools_with_real_descriptions(self):
         server = FastMCP("test")
         RegistrarSessions().mount(server)
         tools = {t.name: t for t in server._tool_manager.list_tools()}
         assert set(tools) == {
-            "open_registry", "view_registry", "view_entity", "sql", "update_registry", "consolidate_review",
+            "open_registry", "view_registry", "view_entity", "sql",
+            "update_registry", "consolidate_review", "export_graph",
         }
         for tool in tools.values():
             assert tool.description, f"{tool.name} has no description"
@@ -361,4 +363,28 @@ class TestMount:
         server = FastMCP("test")
         RegistrarSessions().mount(server, exclude={"open_registry"})
         tools = {t.name: t for t in server._tool_manager.list_tools()}
-        assert set(tools) == {"view_registry", "view_entity", "sql", "update_registry", "consolidate_review"}
+        assert set(tools) == {
+            "view_registry", "view_entity", "sql", "update_registry",
+            "consolidate_review", "export_graph",
+        }
+
+
+class TestExportGraph:
+    pytestmark = pytest.mark.slow
+
+    def test_export_graph_reflects_live_writes(self, tmp_path):
+        sessions = RegistrarSessions()
+        session = _session()
+        sessions.open(session, _db_url(tmp_path), manifest_dir=STATUS_BOARD_SCENARIO_DIR)
+        sessions.update_registry(session, "widget_a:\n    - status:\n        value: active\n")
+        out = tmp_path / "graph.json"
+        assert "Wrote entity graph" in sessions.export_graph(session, str(out))
+
+
+        nodes = {n["name"]: n for n in json.loads(out.read_text())["nodes"]}
+        assert any(c["type"] == "status" and c["fields"].get("value") == "active"
+                   for c in nodes["widget_a"]["components"])
+
+    def test_export_graph_without_open_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="No registry open"):
+            RegistrarSessions().export_graph(_session(), str(tmp_path / "g.html"))
