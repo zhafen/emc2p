@@ -306,6 +306,10 @@ class Registrar:
     def get(self):
         return self._registry.get
 
+    @property
+    def sql(self):
+        return self._registry.sql
+
     def execute(self, final_vars: str | list[str], **inputs) -> dict[str, Any]:
         """Execute DAG nodes and return their outputs.
 

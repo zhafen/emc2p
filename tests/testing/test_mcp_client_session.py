@@ -140,6 +140,7 @@ class TestRealMcpRoundTrip:
             "mcp__emc2p__open_registry",
             "mcp__emc2p__view_registry",
             "mcp__emc2p__view_entity",
+            "mcp__emc2p__sql",
             "mcp__emc2p__update_registry",
             "mcp__emc2p__consolidate_review",
             "mcp__emc2p__export_graph",
