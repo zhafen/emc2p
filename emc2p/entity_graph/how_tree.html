@@ -76,6 +76,12 @@ main { padding-block: 14px 48px; }
 .tests summary { cursor: pointer; font: 600 12px var(--font-mono); color: var(--ok); }
 .tests ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .tests button { border: 0; background: none; padding: 2px 0; cursor: pointer; text-align: left; font: 12px var(--font-mono); color: var(--accent); overflow-wrap: anywhere; }
+.tests details.test summary { font: 12px var(--font-mono); color: var(--accent); cursor: pointer; overflow-wrap: anywhere; }
+.tests .tbody { margin: 4px 0 6px 14px; display: grid; gap: 4px; font-size: 12px; }
+.tests .tbody p { margin: 0; color: var(--ink); }
+.tests .tbody .also { color: var(--muted); }
+.tests .tbody button { display: inline; padding: 0; font-size: 12px; }
+.tests .tbody .goto { justify-self: start; font: 600 12px var(--font-body); }
 .tests .hand { font-size: 11px; color: var(--muted); margin-left: 6px; }
 .tests .sub { font: 12px var(--font-body); color: var(--muted); }
 .tests.hv { border: 1px solid var(--hv); border-radius: 8px; background: var(--hv-soft); padding: 8px 10px; margin-top: 10px; }
@@ -135,13 +141,27 @@ const parent = {}, size = {};
 Object.entries(N).forEach(([id, n]) => n.children.forEach(c => { parent[c] = id; }));
 // Each node's tests split into human-validated (shown first, apart) and other.
 const own = (id, v) => (N[id].tests || []).filter(t => !!(N[t] && N[t].validated) === v);
+// Which nodes each test is linked to (a test can test more than one).
+const testedBy = {};
+Object.entries(N).forEach(([id, n]) => (n.tests || []).forEach(t => (testedBy[t] ??= []).push(id)));
 const memo = {};
-// Linked tests of kind `v` on a node's descendants (not the node itself).
-const belowOf = (id, v) => (memo[id + v] ??= N[id].children.reduce((t, c) => t + own(c, v).length + belowOf(c, v), 0));
+// Distinct tests of kind `v` on a node's descendants, minus the node's own (each test counted once).
+const belowSet = (id, v) => memo[id + v] ??= new Set(N[id].children.flatMap(c => [...own(c, v), ...belowSet(c, v)]));
+const belowOf = (id, v) => { const mine = new Set(own(id, v)); return [...belowSet(id, v)].filter(t => !mine.has(t)).length; };
+// A node's test list: each test opens in place (summary, location, other nodes it tests);
+// "Show in chain" is the explicit jump to the test's own node under quality.
 const testList = (id, ts) => {
   const hand = new Set(N[id].hand_tests || []);
-  return `<ul>${ts.map(t => `<li><button data-jump="${t}">${esc(N[t] ? label(N[t]) : t)}</button>` +
-    `${hand.has(t) ? '<span class="hand" title="Hand-written link (declared in the test)">✎</span>' : ''}</li>`).join('')}</ul>`;
+  return `<ul>${ts.map(t => {
+    const n = N[t]; if (!n) return `<li>${esc(t)}</li>`;
+    const also = (testedBy[t] || []).filter(o => o !== id);
+    return `<li><details class="test"><summary>${esc(label(n))}` +
+      `${hand.has(t) ? '<span class="hand" title="Hand-written link (declared in the test)">✎</span>' : ''}</summary>` +
+      `<div class="tbody">${n.description ? `<p>${esc(firstPara(n.description))}</p>` : ''}` +
+      `${n.location ? `<div class="loc">${esc(n.location)}</div>` : ''}` +
+      `${also.length ? `<div class="also">Also tests: ${also.map(o => `<button data-jump="${o}">${esc(label(N[o]))}</button>`).join(', ')}</div>` : ''}` +
+      `<button class="goto" data-jump="${t}">Show in chain ›</button></div></details></li>`;
+  }).join('')}</ul>`;
 };
 const testGroup = (id, v) => {
   const ts = own(id, v), below = belowOf(id, v);
